@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Dev sync wrapper that works around a macOS+uv+Python 3.12 interaction:
+# uv sets the macOS UF_HIDDEN flag on its editable .pth files, and
+# Python 3.12's site.py skips hidden .pth files, so `import muscle_memory`
+# silently fails from the editable venv.
+#
+# This script syncs dev deps and then clears the hidden flag so
+# `pytest`, `python -m muscle_memory`, etc. work normally.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+uv sync --extra dev "$@"
+
+# unhide any .pth files uv just hid
+find .venv/lib/python*/site-packages -maxdepth 1 -name '*.pth' -print0 2>/dev/null \
+  | xargs -0 -r chflags nohidden 2>/dev/null || true
+
+echo "dev sync complete; import muscle_memory should work now"

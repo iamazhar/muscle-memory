@@ -1,0 +1,451 @@
+"""SQLite + sqlite-vec storage for Skills and Episodes.
+
+This module is the only place that knows about SQL. Everything
+else in muscle-memory talks to the `Store` DAO.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterator
+
+import sqlite_vec
+
+from muscle_memory.models import (
+    Episode,
+    Maturity,
+    Outcome,
+    Scope,
+    Skill,
+    ToolCall,
+    Trajectory,
+)
+
+SCHEMA_VERSION = 1
+
+
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt is not None else None
+
+
+def _parse_iso(s: str | None) -> datetime | None:
+    return datetime.fromisoformat(s) if s else None
+
+
+def _dumps(obj: Any) -> str:
+    return json.dumps(obj, default=str, separators=(",", ":"))
+
+
+class Store:
+    """SQLite-backed persistence for Skills and Episodes.
+
+    All methods open and close a connection per call. For high-frequency
+    operations, use `batch()` which keeps one connection open.
+    """
+
+    def __init__(self, db_path: Path, *, embedding_dims: int = 384):
+        self.db_path = Path(db_path)
+        self.embedding_dims = embedding_dims
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    # ------------------------------------------------------------------
+    # connection management
+    # ------------------------------------------------------------------
+
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    @contextmanager
+    def batch(self) -> Iterator[sqlite3.Connection]:
+        """Context manager that holds a single connection across multiple ops."""
+        conn = self._open()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # schema
+    # ------------------------------------------------------------------
+
+    def _init_db(self) -> None:
+        conn = self._open()
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INTEGER PRIMARY KEY
+                );
+
+                CREATE TABLE IF NOT EXISTS skills (
+                    id TEXT PRIMARY KEY,
+                    activation TEXT NOT NULL,
+                    execution TEXT NOT NULL,
+                    termination TEXT NOT NULL,
+                    tool_hints TEXT NOT NULL DEFAULT '[]',
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    scope TEXT NOT NULL DEFAULT 'project',
+                    score REAL NOT NULL DEFAULT 0.0,
+                    invocations INTEGER NOT NULL DEFAULT 0,
+                    successes INTEGER NOT NULL DEFAULT 0,
+                    failures INTEGER NOT NULL DEFAULT 0,
+                    maturity TEXT NOT NULL DEFAULT 'candidate',
+                    source_episode_ids TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT,
+                    last_refined_at TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_skills_score ON skills(score DESC);
+                CREATE INDEX IF NOT EXISTS idx_skills_maturity ON skills(maturity);
+                CREATE INDEX IF NOT EXISTS idx_skills_scope ON skills(scope);
+
+                CREATE TABLE IF NOT EXISTS episodes (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT,
+                    user_prompt TEXT NOT NULL,
+                    trajectory TEXT NOT NULL,
+                    outcome TEXT NOT NULL DEFAULT 'unknown',
+                    reward REAL NOT NULL DEFAULT 0.0,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT,
+                    project_path TEXT,
+                    activated_skills TEXT NOT NULL DEFAULT '[]'
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
+                CREATE INDEX IF NOT EXISTS idx_episodes_started ON episodes(started_at DESC);
+                """
+            )
+
+            conn.execute(
+                f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS skill_vec USING vec0(
+                    skill_id TEXT PRIMARY KEY,
+                    activation_embedding FLOAT[{self.embedding_dims}]
+                )
+                """
+            )
+
+            cur = conn.execute("SELECT version FROM schema_version")
+            row = cur.fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # skills
+    # ------------------------------------------------------------------
+
+    def add_skill(self, skill: Skill, *, embedding: list[float] | None = None) -> None:
+        with self.batch() as conn:
+            self._insert_skill(conn, skill, embedding)
+
+    def _insert_skill(
+        self,
+        conn: sqlite3.Connection,
+        skill: Skill,
+        embedding: list[float] | None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO skills (
+                id, activation, execution, termination, tool_hints, tags, scope,
+                score, invocations, successes, failures, maturity,
+                source_episode_ids, created_at, last_used_at, last_refined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                skill.id,
+                skill.activation,
+                skill.execution,
+                skill.termination,
+                _dumps(skill.tool_hints),
+                _dumps(skill.tags),
+                skill.scope.value,
+                skill.score,
+                skill.invocations,
+                skill.successes,
+                skill.failures,
+                skill.maturity.value,
+                _dumps(skill.source_episode_ids),
+                _iso(skill.created_at),
+                _iso(skill.last_used_at),
+                _iso(skill.last_refined_at),
+            ),
+        )
+        if embedding is not None:
+            self._ensure_embedding_dim(embedding)
+            conn.execute(
+                "INSERT INTO skill_vec (skill_id, activation_embedding) VALUES (?, ?)",
+                (skill.id, sqlite_vec.serialize_float32(embedding)),
+            )
+
+    def _ensure_embedding_dim(self, embedding: list[float]) -> None:
+        if len(embedding) != self.embedding_dims:
+            raise ValueError(
+                f"Embedding dim mismatch: got {len(embedding)}, "
+                f"expected {self.embedding_dims}. "
+                "Reinitialize the store with the correct embedding_dims."
+            )
+
+    def update_skill(self, skill: Skill, *, embedding: list[float] | None = None) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                UPDATE skills SET
+                    activation = ?,
+                    execution = ?,
+                    termination = ?,
+                    tool_hints = ?,
+                    tags = ?,
+                    scope = ?,
+                    score = ?,
+                    invocations = ?,
+                    successes = ?,
+                    failures = ?,
+                    maturity = ?,
+                    source_episode_ids = ?,
+                    last_used_at = ?,
+                    last_refined_at = ?
+                WHERE id = ?
+                """,
+                (
+                    skill.activation,
+                    skill.execution,
+                    skill.termination,
+                    _dumps(skill.tool_hints),
+                    _dumps(skill.tags),
+                    skill.scope.value,
+                    skill.score,
+                    skill.invocations,
+                    skill.successes,
+                    skill.failures,
+                    skill.maturity.value,
+                    _dumps(skill.source_episode_ids),
+                    _iso(skill.last_used_at),
+                    _iso(skill.last_refined_at),
+                    skill.id,
+                ),
+            )
+            if embedding is not None:
+                self._ensure_embedding_dim(embedding)
+                conn.execute("DELETE FROM skill_vec WHERE skill_id = ?", (skill.id,))
+                conn.execute(
+                    "INSERT INTO skill_vec (skill_id, activation_embedding) VALUES (?, ?)",
+                    (skill.id, sqlite_vec.serialize_float32(embedding)),
+                )
+
+    def get_skill(self, skill_id: str) -> Skill | None:
+        conn = self._open()
+        try:
+            row = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+            return _row_to_skill(row) if row else None
+        finally:
+            conn.close()
+
+    def delete_skill(self, skill_id: str) -> None:
+        with self.batch() as conn:
+            conn.execute("DELETE FROM skills WHERE id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_vec WHERE skill_id = ?", (skill_id,))
+
+    def list_skills(
+        self,
+        *,
+        scope: Scope | None = None,
+        maturity: Maturity | None = None,
+        limit: int | None = None,
+    ) -> list[Skill]:
+        sql = "SELECT * FROM skills WHERE 1=1"
+        params: list[Any] = []
+        if scope is not None:
+            sql += " AND scope = ?"
+            params.append(scope.value)
+        if maturity is not None:
+            sql += " AND maturity = ?"
+            params.append(maturity.value)
+        sql += " ORDER BY score DESC, invocations DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        conn = self._open()
+        try:
+            rows = conn.execute(sql, params).fetchall()
+            return [_row_to_skill(r) for r in rows]
+        finally:
+            conn.close()
+
+    def count_skills(self, *, scope: Scope | None = None) -> int:
+        conn = self._open()
+        try:
+            if scope is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM skills WHERE scope = ?", (scope.value,)
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT COUNT(*) AS n FROM skills").fetchone()
+            return int(row["n"])
+        finally:
+            conn.close()
+
+    def search_skills_by_embedding(
+        self,
+        embedding: list[float],
+        *,
+        top_k: int = 5,
+        scope: Scope | None = None,
+    ) -> list[tuple[Skill, float]]:
+        """KNN search over activation embeddings.
+
+        Returns a list of (Skill, distance) tuples ordered by ascending
+        distance (closer = more similar).
+        """
+        self._ensure_embedding_dim(embedding)
+
+        conn = self._open()
+        try:
+            # vec0 KNN query
+            rows = conn.execute(
+                """
+                SELECT skill_id, distance
+                FROM skill_vec
+                WHERE activation_embedding MATCH ?
+                  AND k = ?
+                ORDER BY distance
+                """,
+                (sqlite_vec.serialize_float32(embedding), top_k * 4),
+            ).fetchall()
+
+            if not rows:
+                return []
+
+            # load full Skills for the hits, filter by scope if requested
+            by_id = {r["skill_id"]: float(r["distance"]) for r in rows}
+            placeholders = ",".join("?" * len(by_id))
+            sql = f"SELECT * FROM skills WHERE id IN ({placeholders})"
+            params: list[Any] = list(by_id.keys())
+            if scope is not None:
+                sql += " AND scope = ?"
+                params.append(scope.value)
+
+            skill_rows = conn.execute(sql, params).fetchall()
+            results = [(_row_to_skill(r), by_id[r["id"]]) for r in skill_rows]
+            results.sort(key=lambda t: t[1])
+            return results[:top_k]
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # episodes
+    # ------------------------------------------------------------------
+
+    def add_episode(self, episode: Episode) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                INSERT INTO episodes (
+                    id, session_id, user_prompt, trajectory, outcome, reward,
+                    started_at, ended_at, project_path, activated_skills
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    episode.id,
+                    episode.session_id,
+                    episode.user_prompt,
+                    episode.trajectory.model_dump_json(),
+                    episode.outcome.value,
+                    episode.reward,
+                    _iso(episode.started_at),
+                    _iso(episode.ended_at),
+                    episode.project_path,
+                    _dumps(episode.activated_skills),
+                ),
+            )
+
+    def get_episode(self, episode_id: str) -> Episode | None:
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT * FROM episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            return _row_to_episode(row) if row else None
+        finally:
+            conn.close()
+
+    def list_episodes(self, *, limit: int = 50) -> list[Episode]:
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM episodes ORDER BY started_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [_row_to_episode(r) for r in rows]
+        finally:
+            conn.close()
+
+
+# ----------------------------------------------------------------------
+# row -> model hydration helpers
+# ----------------------------------------------------------------------
+
+
+def _row_to_skill(row: sqlite3.Row) -> Skill:
+    return Skill(
+        id=row["id"],
+        activation=row["activation"],
+        execution=row["execution"],
+        termination=row["termination"],
+        tool_hints=json.loads(row["tool_hints"]),
+        tags=json.loads(row["tags"]),
+        scope=Scope(row["scope"]),
+        score=row["score"],
+        invocations=row["invocations"],
+        successes=row["successes"],
+        failures=row["failures"],
+        maturity=Maturity(row["maturity"]),
+        source_episode_ids=json.loads(row["source_episode_ids"]),
+        created_at=_parse_iso(row["created_at"]),  # type: ignore[arg-type]
+        last_used_at=_parse_iso(row["last_used_at"]),
+        last_refined_at=_parse_iso(row["last_refined_at"]),
+    )
+
+
+def _row_to_episode(row: sqlite3.Row) -> Episode:
+    traj_data = json.loads(row["trajectory"])
+    trajectory = Trajectory(
+        user_prompt=traj_data.get("user_prompt", ""),
+        tool_calls=[ToolCall(**tc) for tc in traj_data.get("tool_calls", [])],
+        assistant_turns=traj_data.get("assistant_turns", []),
+    )
+    return Episode(
+        id=row["id"],
+        session_id=row["session_id"],
+        user_prompt=row["user_prompt"],
+        trajectory=trajectory,
+        outcome=Outcome(row["outcome"]),
+        reward=row["reward"],
+        started_at=_parse_iso(row["started_at"]),  # type: ignore[arg-type]
+        ended_at=_parse_iso(row["ended_at"]),
+        project_path=row["project_path"],
+        activated_skills=json.loads(row["activated_skills"]),
+    )
