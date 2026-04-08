@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hero.jpg" alt="Pixel art of a vintage CRT monitor with a tiny brain character flexing a bicep on its amber phosphor screen" width="720">
+  <img src="docs/assets/hero.png" alt="Pixel art of a vintage CRT monitor with a tiny brain character flexing a bicep on its amber phosphor screen" width="720">
 </p>
 
 <h1 align="center">muscle-memory</h1>
