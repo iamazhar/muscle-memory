@@ -54,17 +54,29 @@ _FAIL_SUBSTRINGS = [
     "AssertionError",
     "SyntaxError",
     "panic:",
+    "ModuleNotFoundError",
+    "ImportError",
+    "command not found",
+    "No such file",
+    "Permission denied",
 ]
 
 _SUCCESS_SUBSTRINGS = [
     "passed",
     "PASS",
     "OK",
-    "ok",
+    " ok\n",
     "build successful",
     "tests passed",
     "All checks passed",
     "Build succeeded",
+    # "exit code: 0" and friends
+    "exit 0",
+    "exit code 0",
+    "exited with code 0",
+    # Python package/module resolution: seeing an __init__.py path in output
+    # almost always means a successful import.
+    "__init__.py",
 ]
 
 
@@ -75,7 +87,12 @@ class OutcomeSignal:
     reasons: list[str]
 
 
-def infer_outcome(trajectory: Trajectory, *, user_followup: str = "") -> OutcomeSignal:
+def infer_outcome(
+    trajectory: Trajectory,
+    *,
+    user_followup: str = "",
+    any_skills_activated: bool = False,
+) -> OutcomeSignal:
     """Decide success / failure / unknown from a trajectory.
 
     Guiding principle: **the final state dominates**. Mid-session errors
@@ -85,7 +102,10 @@ def infer_outcome(trajectory: Trajectory, *, user_followup: str = "") -> Outcome
     Hierarchy (highest signal first):
       1. User follow-up phrasing, if present.
       2. Final tool call's error/success state + keywords in its output.
-      3. Density of unrecovered tail errors.
+      3. Skill-activated sessions default toward success when nothing
+         obviously failed — the user invoked a playbook, the playbook
+         executed, no tail errors. Score it.
+      4. Density of unrecovered tail errors.
     """
     reasons: list[str] = []
     score = 0.0
@@ -125,7 +145,27 @@ def infer_outcome(trajectory: Trajectory, *, user_followup: str = "") -> Outcome
             score += 0.5
             reasons.append("final tool call completed without error")
 
-    # 3. Unrecovered tail errors (2+ of the last 3 calls errored).
+    # 3. Skill-activated bias: if the user invoked a playbook (a skill was
+    # retrieved + injected), the expected outcome is success. Credit the
+    # run when nothing obviously failed. Without this, pure-Bash success
+    # chains like `chflags && .venv/bin/python3 -c 'import x'` land in
+    # UNKNOWN even though they clearly worked.
+    if any_skills_activated:
+        last_3_errors_count = sum(1 for tc in tool_calls[-3:] if tc.is_error())
+        last_text_has_fail = _contains_any(last_text, _FAIL_SUBSTRINGS)
+        if (
+            not last.is_error()
+            and not last_text_has_fail
+            and last_3_errors_count <= 1
+            and last_text.strip()
+        ):
+            score += 1.5
+            reasons.append(
+                "skill-activated session ended without tail errors "
+                "(implicit success)"
+            )
+
+    # 4. Unrecovered tail errors (2+ of the last 3 calls errored).
     last_3_errors = sum(1 for tc in tool_calls[-3:] if tc.is_error())
     if last_3_errors >= 2:
         score -= 1.5

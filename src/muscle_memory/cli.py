@@ -211,6 +211,61 @@ def stats() -> None:
 
 
 @app.command()
+def rescore() -> None:
+    """Re-run the outcome heuristic on every episode and re-credit skills.
+
+    Use this after upgrading muscle-memory or tweaking the outcome
+    heuristic — it retroactively applies the new rules to historical
+    episodes so skill scores reflect current logic.
+    """
+    from muscle_memory.outcomes import infer_outcome
+    from muscle_memory.scorer import Scorer
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+
+    # First, reset skill counters so rescoring is idempotent.
+    reset_n = 0
+    for skill in store.list_skills():
+        skill.successes = 0
+        skill.failures = 0
+        # keep invocations (set by user_prompt hook at retrieval time)
+        skill.recompute_score()
+        skill.recompute_maturity()
+        store.update_skill(skill)
+        reset_n += 1
+
+    # Iterate episodes, re-infer outcomes, re-credit skills.
+    episodes = store.list_episodes(limit=10_000)
+    scorer = Scorer(store, max_skills=cfg.max_skills)
+    outcome_counts = {"success": 0, "failure": 0, "unknown": 0}
+
+    for ep in episodes:
+        signal = infer_outcome(
+            ep.trajectory,
+            any_skills_activated=bool(ep.activated_skills),
+        )
+        ep.outcome = signal.outcome
+        ep.reward = signal.reward
+        outcome_counts[signal.outcome.value] += 1
+        store.update_episode_outcome(
+            ep.id, outcome=signal.outcome, reward=signal.reward
+        )
+        scorer.credit_episode(ep)
+
+    console.print(
+        Panel.fit(
+            f"reset {reset_n} skills\n"
+            f"re-scored {len(episodes)} episodes\n"
+            f"  success: {outcome_counts['success']}\n"
+            f"  failure: {outcome_counts['failure']}\n"
+            f"  unknown: {outcome_counts['unknown']}",
+            title="rescore complete",
+        )
+    )
+
+
+@app.command()
 def prune(
     below: float = typer.Option(0.2, "--below", help="Score floor for pruning."),
     min_invocations: int = typer.Option(5, "--min-invocations"),

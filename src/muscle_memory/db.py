@@ -383,6 +383,19 @@ class Store:
                 ),
             )
 
+    def update_episode_outcome(
+        self, episode_id: str, *, outcome: Outcome, reward: float
+    ) -> None:
+        """Update just the outcome/reward of an existing episode.
+
+        Used by `mm rescore` after the outcome heuristic changes.
+        """
+        with self.batch() as conn:
+            conn.execute(
+                "UPDATE episodes SET outcome = ?, reward = ? WHERE id = ?",
+                (outcome.value, reward, episode_id),
+            )
+
     def get_episode(self, episode_id: str) -> Episode | None:
         conn = self._open()
         try:

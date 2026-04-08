@@ -46,9 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         if not trajectory.tool_calls and not trajectory.assistant_turns:
             return 0
 
-        signal = infer_outcome(trajectory)
-
         activated = _load_activations(cfg, session_id)
+        signal = infer_outcome(trajectory, any_skills_activated=bool(activated))
 
         episode = Episode(
             session_id=session_id,

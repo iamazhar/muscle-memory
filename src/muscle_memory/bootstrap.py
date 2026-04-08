@@ -111,6 +111,9 @@ def bootstrap(
             continue
         report.sessions_parsed += 1
 
+        # Bootstrap has no activation sidecars — it's processing historical
+        # sessions from before muscle-memory was installed. Falls back to
+        # keyword-only heuristic.
         signal = infer_outcome(trajectory)
 
         episode = Episode(
