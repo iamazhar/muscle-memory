@@ -53,6 +53,13 @@ class Retriever:
         if not query or not query.strip():
             return []
 
+        # Fast path: if the store has no skills yet, don't pay the
+        # ~170ms cost of loading fastembed. This is the common case
+        # for the first few Claude Code sessions after `mm init`,
+        # before any skills have been extracted.
+        if self.store.count_skills() == 0:
+            return []
+
         k = top_k if top_k is not None else self.config.retrieval_top_k
 
         query_emb = self.embedder.embed_one(query)
