@@ -16,7 +16,7 @@ from pathlib import Path
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import Embedder
-from muscle_memory.extractor import Extractor
+from muscle_memory.extractor import ExtractionError, Extractor
 from muscle_memory.hooks.stop import parse_transcript
 from muscle_memory.llm import LLM
 from muscle_memory.models import Episode, Skill
@@ -30,6 +30,7 @@ class BootstrapReport:
     episodes_added: int = 0
     skills_extracted: int = 0
     errors: list[str] = field(default_factory=list)
+    aborted_reason: str | None = None
 
 
 def find_session_files(
@@ -129,8 +130,15 @@ def bootstrap(
 
         try:
             skills = extractor.extract(episode)
-        except Exception as e:  # noqa: BLE001
-            report.errors.append(f"{path.name}: extraction failed: {e}")
+        except ExtractionError as e:
+            # Surface LLM errors loudly. If the first one fails for
+            # auth/credit/quota reasons, abort — every subsequent call
+            # will fail the same way and waste time.
+            msg = str(e)
+            report.errors.append(f"{path.name}: extraction failed: {msg}")
+            if _looks_fatal(msg) or report.skills_extracted == 0:
+                report.aborted_reason = msg
+                return report
             continue
 
         for skill in skills:
@@ -144,6 +152,22 @@ def bootstrap(
                 report.errors.append(f"add skill failed: {e}")
 
     return report
+
+
+def _looks_fatal(msg: str) -> bool:
+    """Heuristic: does this LLM error look like it'll keep happening?"""
+    low = msg.lower()
+    fatal_markers = (
+        "credit",
+        "quota",
+        "billing",
+        "unauthorized",
+        "authentication",
+        "api key",
+        "not found",  # wrong model name
+        "invalid_request_error",
+    )
+    return any(m in low for m in fatal_markers)
 
 
 def _too_similar(store: Store, skill: Skill, embedder: Embedder) -> bool:

@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from muscle_memory.config import Config
-from muscle_memory.extractor import Extractor, format_trajectory_for_extractor
+from muscle_memory.extractor import (
+    ExtractionError,
+    Extractor,
+    format_trajectory_for_extractor,
+)
 from muscle_memory.models import Episode, Outcome, Trajectory
 
 
@@ -80,6 +86,27 @@ def test_extractor_tolerates_bad_payload(
 ) -> None:
     ex = Extractor(FakeLLM("not a list"), sample_config)
     assert ex.extract(successful_episode) == []
+
+
+def test_extractor_raises_on_llm_failure(
+    successful_episode: Episode, sample_config: Config
+) -> None:
+    """LLM failures must be loud, not silent. Regression test for
+    the bug where bootstrap reported 'skills: 0' while an API-credit
+    error was silently swallowed."""
+
+    class ExplodingLLM:
+        model = "boom"
+
+        def complete_text(self, *a, **k):
+            raise RuntimeError("boom")
+
+        def complete_json(self, *a, **k):
+            raise RuntimeError("boom")
+
+    ex = Extractor(ExplodingLLM(), sample_config)
+    with pytest.raises(ExtractionError, match="LLM call failed"):
+        ex.extract(successful_episode)
 
 
 def test_extractor_skips_invalid_skill_entries(

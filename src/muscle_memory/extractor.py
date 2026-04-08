@@ -16,6 +16,16 @@ from muscle_memory.llm import LLM
 from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
 
 
+class ExtractionError(RuntimeError):
+    """Raised when the LLM call or response parsing fails.
+
+    Callers (bootstrap, stop hook) decide whether to propagate or
+    swallow. Inside the extractor we never hide failures behind an
+    empty list — that silently drops user signal and was a real bug
+    we hit during dogfooding.
+    """
+
+
 def _load_prompt_template() -> str:
     return (
         resources.files("muscle_memory.prompts")
@@ -83,9 +93,11 @@ class Extractor:
     def extract(self, episode: Episode) -> list[Skill]:
         """Return zero or a few candidate Skills derived from `episode`.
 
-        Returns an empty list if the LLM judges nothing reusable was
-        learned, if the episode failed, or if the LLM response can't
-        be parsed into valid Skill objects.
+        Returns an empty list if the LLM legitimately judges nothing
+        reusable was learned, or if the episode is a known FAILURE,
+        or if the trajectory has no activity. Raises `ExtractionError`
+        if the LLM call fails or its response can't be parsed —
+        callers decide how to handle those.
         """
         if episode.outcome is Outcome.FAILURE:
             return []
@@ -100,9 +112,8 @@ class Extractor:
 
         try:
             raw = self.llm.complete_json(system, user, max_tokens=2048, temperature=0.2)
-        except Exception:
-            # extraction is best-effort; never blow up the caller
-            return []
+        except Exception as exc:
+            raise ExtractionError(f"LLM call failed: {exc}") from exc
 
         return self._coerce_skills(raw, source_episode_id=episode.id)
 
@@ -141,4 +152,4 @@ def _as_str_list(value: Any) -> list[str]:
     return []
 
 
-__all__ = ["Extractor", "format_trajectory_for_extractor"]
+__all__ = ["Extractor", "ExtractionError", "format_trajectory_for_extractor"]

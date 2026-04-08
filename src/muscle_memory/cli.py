@@ -309,6 +309,7 @@ def bootstrap(
             max_sessions=max_sessions,
         )
 
+    title = "bootstrap aborted" if report.aborted_reason else "bootstrap complete"
     console.print(
         Panel.fit(
             f"sessions considered: {report.sessions_considered}\n"
@@ -316,9 +317,16 @@ def bootstrap(
             f"episodes added:     {report.episodes_added}\n"
             f"skills extracted:   {report.skills_extracted}\n"
             + (f"errors:             {len(report.errors)}" if report.errors else ""),
-            title="bootstrap complete",
+            title=title,
         )
     )
+    if report.aborted_reason:
+        console.print(
+            f"\n[red]aborted:[/red] {report.aborted_reason}\n"
+            "[dim]fix the underlying issue (API credits, auth, model name) "
+            "and re-run `mm bootstrap`.[/dim]"
+        )
+        raise typer.Exit(1)
     if report.errors:
         for err in report.errors[:5]:
             console.print(f"[yellow]  {err}[/yellow]")
