@@ -32,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
     if not prompt:
         return 0
 
+    # Skip direct shell-escape commands: the user is running a tool,
+    # not asking a question. Matching skills against "mm list" or "ls"
+    # just bloats invocation counts without signal.
+    if _is_shell_escape(prompt):
+        return 0
+
     cwd = payload.get("cwd")
     session_id = payload.get("session_id") or ""
 
@@ -76,6 +82,48 @@ def _extract_prompt(payload: dict[str, Any]) -> str:
             if isinstance(hook_data.get(key), str):
                 return hook_data[key]
     return ""
+
+
+# Prefixes that indicate the user is running a direct command rather
+# than asking a natural-language question. We skip skill retrieval for
+# these — matching "mm list" or "ls src/" against activation conditions
+# just bloats invocation counts without adding signal.
+_BANG_PREFIXES = (
+    "!",
+    "/",  # slash commands like /model, /clear
+)
+
+
+# Common shell command names that strongly suggest direct execution
+# (when the user prompt is just `foo bar` with no natural-language shape).
+_SHELL_CMD_HEADS = {
+    "ls", "cd", "cat", "head", "tail", "grep", "find", "pwd",
+    "git", "npm", "yarn", "uv", "pip", "python", "python3", "node",
+    "bash", "sh", "zsh", "which", "whoami", "env", "export", "echo",
+    "mm", "mkdir", "rm", "cp", "mv", "touch", "chmod", "chflags",
+    "curl", "wget", "ssh", "scp", "kubectl", "docker",
+}
+
+
+def _is_shell_escape(prompt: str) -> bool:
+    """Heuristic: does this prompt look like a direct shell command?
+
+    Returns True for:
+      - Anything starting with `!` (Claude Code shell-escape)
+      - Anything starting with `/` (Claude Code slash command)
+      - A single short line whose first word is a common shell command
+    """
+    s = prompt.strip()
+    if not s:
+        return True
+    if s.startswith(_BANG_PREFIXES):
+        return True
+    # single-line, short, first token is a known command → probably direct
+    if "\n" not in s and len(s) < 120:
+        first_token = s.split(None, 1)[0].lower()
+        if first_token in _SHELL_CMD_HEADS:
+            return True
+    return False
 
 
 def _skill_title(activation: str, max_len: int = 60) -> str:

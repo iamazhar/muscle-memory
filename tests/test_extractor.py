@@ -187,6 +187,31 @@ def test_format_trajectory_keeps_medium_histories_whole() -> None:
     assert f"call-{n - 1} " in out
 
 
+def test_user_prompt_hook_skips_shell_escape_commands() -> None:
+    """Bang prefixes, slash commands, and single-token shell commands
+    should not trigger skill retrieval."""
+    from muscle_memory.hooks.user_prompt import _is_shell_escape
+
+    # bang prefix
+    assert _is_shell_escape("!mm list")
+    assert _is_shell_escape("!git status")
+    # slash command
+    assert _is_shell_escape("/model")
+    assert _is_shell_escape("/clear")
+    # bare shell command
+    assert _is_shell_escape("mm list")
+    assert _is_shell_escape("ls src/")
+    assert _is_shell_escape("git log --oneline")
+    assert _is_shell_escape("python3 --version")
+    # natural-language prompts are NOT escaped
+    assert not _is_shell_escape("help me fix this test")
+    assert not _is_shell_escape("My python package isn't importing")
+    assert not _is_shell_escape("Can you run pytest and show me the output?")
+    # empty is technically escape (skip retrieval)
+    assert _is_shell_escape("")
+    assert _is_shell_escape("   ")
+
+
 def test_format_trajectory_drops_slash_command_noise_from_goal() -> None:
     """The extractor should not treat /model caveat text as the user's goal."""
     from muscle_memory.models import Episode, Trajectory, ToolCall

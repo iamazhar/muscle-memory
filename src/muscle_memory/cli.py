@@ -390,6 +390,7 @@ def bootstrap(
 @app.command("extract-episode", hidden=True)
 def extract_episode_cmd(episode_id: str) -> None:
     """Extract skills from a single episode (used by the async pipeline)."""
+    from muscle_memory.dedup import add_skill_with_dedup
     from muscle_memory.embeddings import make_embedder
     from muscle_memory.extractor import Extractor
     from muscle_memory.llm import make_llm
@@ -408,14 +409,87 @@ def extract_episode_cmd(episode_id: str) -> None:
     skills = ex.extract(episode)
 
     added = 0
+    deduped = 0
     for skill in skills:
-        embedding = embedder.embed_one(skill.activation)
-        try:
-            store.add_skill(skill, embedding=embedding)
+        was_added, _existing = add_skill_with_dedup(store, embedder, skill)
+        if was_added:
             added += 1
-        except Exception:
-            pass
-    console.print(f"[green]Extracted {added} new skills from episode {episode_id}[/green]")
+        else:
+            deduped += 1
+    console.print(
+        f"[green]Extracted {added} new skills from episode {episode_id}"
+        f"[/green] ([dim]{deduped} deduped[/dim])"
+    )
+
+
+@app.command()
+def dedup(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Only show what would be consolidated."
+    ),
+    threshold: float = typer.Option(
+        None,
+        "--threshold",
+        "-t",
+        help="Embedding distance threshold (0.0–2.0). Smaller = stricter.",
+    ),
+) -> None:
+    """Find and collapse near-duplicate skills.
+
+    Clusters skills by embedding similarity, then merges each cluster
+    into its best-scoring member — summing successes/failures/invocations
+    so history is preserved, and deleting the losers.
+    """
+    from muscle_memory.dedup import (
+        DEDUP_DISTANCE_THRESHOLD,
+        consolidate_group,
+        find_near_duplicate_groups,
+    )
+    from muscle_memory.embeddings import make_embedder
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    embedder = make_embedder(cfg)
+
+    effective_threshold = threshold if threshold is not None else DEDUP_DISTANCE_THRESHOLD
+    groups = find_near_duplicate_groups(store, embedder, effective_threshold)
+    if not groups:
+        console.print("[green]No near-duplicate skills found.[/green]")
+        return
+
+    total_losers = sum(len(g) - 1 for g in groups)
+    console.print(
+        f"Found [bold]{len(groups)}[/bold] duplicate group(s), "
+        f"[bold]{total_losers}[/bold] skills would be collapsed.\n"
+    )
+
+    for i, group in enumerate(groups, start=1):
+        keeper = group[0]
+        console.print(
+            f"[cyan]Group {i}[/cyan] — keep [bold]{keeper.id[:8]}[/bold] "
+            f"({keeper.successes}/{keeper.invocations}, score {keeper.score:.2f})"
+        )
+        console.print(f"  [dim]{keeper.activation[:90]}…[/dim]")
+        for loser in group[1:]:
+            console.print(
+                f"  [red]drop[/red] {loser.id[:8]} "
+                f"({loser.successes}/{loser.invocations}, score {loser.score:.2f})"
+            )
+        console.print()
+
+    if dry_run:
+        console.print("[yellow]--dry-run: no changes made.[/yellow]")
+        return
+
+    consolidated = 0
+    for group in groups:
+        consolidate_group(store, group)
+        consolidated += len(group) - 1
+
+    console.print(
+        f"[green]Collapsed {consolidated} duplicate skills.[/green] "
+        f"{store.count_skills()} remain."
+    )
 
 
 # ----------------------------------------------------------------------

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from muscle_memory.config import Config
 from muscle_memory.db import Store
+from muscle_memory.dedup import add_skill_with_dedup
 from muscle_memory.embeddings import Embedder
 from muscle_memory.extractor import ExtractionError, Extractor
 from muscle_memory.hooks.stop import parse_transcript
@@ -145,14 +146,9 @@ def bootstrap(
             continue
 
         for skill in skills:
-            if _too_similar(store, skill, embedder):
-                continue
-            embedding = embedder.embed_one(skill.activation)
-            try:
-                store.add_skill(skill, embedding=embedding)
+            added, _existing = add_skill_with_dedup(store, embedder, skill)
+            if added:
                 report.skills_extracted += 1
-            except Exception as e:  # noqa: BLE001
-                report.errors.append(f"add skill failed: {e}")
 
     return report
 
@@ -173,11 +169,3 @@ def _looks_fatal(msg: str) -> bool:
     return any(m in low for m in fatal_markers)
 
 
-def _too_similar(store: Store, skill: Skill, embedder: Embedder) -> bool:
-    """Crude dedup: if any existing skill has very similar activation, skip."""
-    emb = embedder.embed_one(skill.activation)
-    hits = store.search_skills_by_embedding(emb, top_k=1)
-    if not hits:
-        return False
-    _existing, distance = hits[0]
-    return distance < 0.1  # very close match
