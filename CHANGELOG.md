@@ -5,7 +5,7 @@ All notable changes to `muscle-memory` will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v0.2.0.dev
+## [0.2.0] — 2026-04-08
 
 ### Added — Non-Parametric PPO refinement loop
 
@@ -104,12 +104,37 @@ coding-agent bug.
     data, silent on high-success skills, silent without invocations,
     silent without failures
 
+### Added — performance pass
+
+- `Retriever.retrieve()` now short-circuits when the store has zero
+  skills, skipping the ~170ms fastembed model load on first-session
+  hook invocations. Empty-store hooks return in ~100ms (identical
+  to `mm version`) instead of ~290ms.
+- `docs/performance.md` captures the full latency + cost measurement
+  methodology, per-operation dollar costs at Sonnet 4.6 pricing
+  (extraction ~$0.009, full refinement ~$0.030), monthly projections
+  across light/heavy/extreme usage profiles, and a ranked list of
+  deferred optimizations (persistent embedder daemon, smaller embedder
+  model, FTS prefilter, aggressive trajectory elision, parallel judge
+  calls).
+
 ### Changed
 
-- `pyproject.toml` version bumped to `0.2.0.dev0`.
 - Default model for extraction + refinement is Sonnet 4.6 (unchanged
   from v0.1). Refinement uses the same LLM provider as extraction;
   no separate configuration.
+
+### Fixed
+
+- `hooks/user_prompt.py` and `hooks/stop.py` now wrap JSON parsing in
+  a blanket `except Exception` + `isinstance(dict)` guard. A hook
+  crash can never break a user's Claude Code session, regardless of
+  what garbage appears on stdin.
+- Outcome heuristic: the `last_3_errors >= 2` penalty no longer fires
+  when the final tool call has explicit success keywords. Previously
+  a recovery trajectory like `[error, error, success with __init__.py path]`
+  was landing in `UNKNOWN` because the penalty cancelled the success
+  bonus. Now it correctly scores as `SUCCESS`.
 
 ---
 
@@ -243,4 +268,5 @@ to install with `uv tool install muscle-memory`.
   so multi-turn executions drop the marker from stdout. Interactive
   Claude Code users see it every time. Documented in `docs/testing.md`.
 
+[0.2.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.0
 [0.1.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.1.0
