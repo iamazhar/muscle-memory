@@ -1,6 +1,13 @@
-# muscle-memory
+<p align="center">
+  <img src="docs/assets/hero.jpg" alt="Pixel art of a vintage CRT monitor with a tiny brain character flexing a bicep on its amber phosphor screen" width="720">
+</p>
 
-> Procedural memory for coding agents. Your past sessions, compiled.
+<h1 align="center">muscle-memory</h1>
+
+<p align="center">
+  <em>Procedural memory for coding agents. Your past sessions, compiled.</em>
+</p>
+
 
 `muscle-memory` gives Claude Code a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches your sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task.
 
