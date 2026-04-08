@@ -11,23 +11,36 @@ actually help with. **When in doubt, return an empty array.**
 
 ## What counts as a Skill
 
-A Skill has three text fields:
+A Skill has three text fields. The critical thing to understand is
+that these skills will be **executed by an AI agent** (Claude Code)
+in a future session, not read by a human. Write the execution steps
+as imperative commands the agent can run verbatim, not as advice for
+someone to interpret.
 
 - **activation** — concrete, observable conditions under which this
   skill applies. Not "when the user wants to run tests" (vague) but
   "when `pytest` errors with `ImportError` in a repo that has a
   `conftest.py` at the root" (specific enough to match).
 
-- **execution** — the ordered steps the agent should take while the
-  skill is active. Plain English, referencing tools and commands where
-  helpful. Should read like a runbook written by someone who just
-  solved this problem.
+- **execution** — the ordered **actions** for the agent to PERFORM,
+  not describe. Each step must be a direct, concrete action — a
+  command to run, a file to edit, a tool to invoke — not an
+  observation or suggestion. Write in imperative mood:
 
-- **termination** — the condition under which the agent knows the
-  skill has done its job and should stop following it. Usually a
-  success signal ("tests pass", "build green", "file compiles") or
-  a fallback condition ("the expected file doesn't exist, proceed
-  normally").
+  * **YES:** `1. Run `chflags nohidden .venv/lib/python*/site-packages/*.pth`.`
+  * **NO:**  `1. You should check for the hidden flag on .pth files.`
+  * **YES:** `2. Run the test suite with `uv run pytest -x` and confirm it exits 0.`
+  * **NO:**  `2. Consider running the tests to verify.`
+
+  If a step is conditional, make the check itself an action:
+  `3. If `ls tools/test-runner.sh` exists, run `./tools/test-runner.sh`
+  instead of invoking pytest directly.`
+
+- **termination** — the concrete condition under which the agent knows
+  the playbook is done. Usually an observable success signal ("tests
+  pass", "build green", "file compiles", "the command exits 0") or an
+  explicit fallback condition ("the expected file doesn't exist —
+  abandon the playbook and proceed normally").
 
 ## Extract ONLY when ALL of these hold
 
