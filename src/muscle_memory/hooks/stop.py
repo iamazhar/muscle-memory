@@ -22,14 +22,24 @@ from muscle_memory.scorer import Scorer
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Hook failures MUST NEVER crash the user's Claude Code session.
     try:
         payload = json.load(sys.stdin)
-    except json.JSONDecodeError:
+    except Exception:
         return 0
 
-    session_id = payload.get("session_id") or ""
-    transcript_path_str = payload.get("transcript_path") or ""
-    cwd = payload.get("cwd")
+    if not isinstance(payload, dict):
+        return 0
+
+    try:
+        session_id = payload.get("session_id") or ""
+        transcript_path_str = payload.get("transcript_path") or ""
+        cwd = payload.get("cwd")
+    except Exception:
+        return 0
+
+    if not isinstance(transcript_path_str, str):
+        return 0
 
     if not transcript_path_str:
         return 0

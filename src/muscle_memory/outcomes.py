@@ -166,8 +166,16 @@ def infer_outcome(
             )
 
     # 4. Unrecovered tail errors (2+ of the last 3 calls errored).
+    # Skip this penalty if the final tool call was a clear success —
+    # in a recovery trajectory, earlier errors are the point, not a
+    # reason to demote.
     last_3_errors = sum(1 for tc in tool_calls[-3:] if tc.is_error())
-    if last_3_errors >= 2:
+    final_call_clearly_succeeded = (
+        not last.is_error()
+        and _contains_any(last_text, _SUCCESS_SUBSTRINGS)
+        and not _contains_any(last_text, _FAIL_SUBSTRINGS)
+    )
+    if last_3_errors >= 2 and not final_call_clearly_succeeded:
         score -= 1.5
         reasons.append(f"{last_3_errors} tool errors in last 3 calls (unrecovered)")
 

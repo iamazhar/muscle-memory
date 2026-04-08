@@ -22,13 +22,22 @@ from muscle_memory.retriever import RetrievedSkill, Retriever
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Hook failures MUST NEVER crash the user's Claude Code session.
+    # We aggressively catch everything — bad stdin, bad payload shape,
+    # config errors, store errors, the works.
     try:
         payload = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        # bad input — don't block the user
+    except Exception:
         return 0
 
-    prompt = _extract_prompt(payload)
+    if not isinstance(payload, dict):
+        return 0
+
+    try:
+        prompt = _extract_prompt(payload)
+    except Exception:
+        return 0
+
     if not prompt:
         return 0
 
