@@ -34,16 +34,26 @@ def _load_prompt_template() -> str:
     )
 
 
+# We only elide very long trajectories — the "interesting" events
+# (errors, retries, recoveries) often live in the middle, so aggressive
+# head+tail sampling drops the very signal we care about.
+#
+# Rule of thumb from Sonnet 4.6's 200k context: a trajectory of ~200
+# tool calls ≈ 30k tokens, which is fine. We only kick in at >400 calls.
+MAX_TOOL_CALLS_BEFORE_ELISION = 400
+MAX_TOOL_CALLS_KEPT_HEAD = 80
+MAX_TOOL_CALLS_KEPT_TAIL = 120
+
+
 def _format_tool_call(tc: ToolCall, idx: int) -> str:
-    parts = [f"[{idx}] tool={tc.name}"]
+    parts = [f"call-{idx} tool={tc.name}"]
     if tc.arguments:
-        # truncate long argument values
         args_repr = ", ".join(f"{k}={_short(v)}" for k, v in tc.arguments.items())
         parts.append(f"  args: {args_repr}")
     if tc.result:
-        parts.append(f"  result: {_short(tc.result, 400)}")
+        parts.append(f"  result: {_short(tc.result, 300)}")
     if tc.error:
-        parts.append(f"  ERROR: {_short(tc.error, 400)}")
+        parts.append(f"  ERROR: {_short(tc.error, 300)}")
     return "\n".join(parts)
 
 
@@ -54,32 +64,78 @@ def _short(value: Any, limit: int = 200) -> str:
     return s[:limit] + f"... ({len(s) - limit} more chars)"
 
 
+def _is_noise_prompt(prompt: str) -> bool:
+    """Detect Claude Code slash-command / system wrappers at the start
+    of a transcript so we don't report them as the user's goal."""
+    if not prompt:
+        return True
+    low = prompt.strip().lower()
+    if low.startswith("<local-command-"):
+        return True
+    if low.startswith("<command-name>") or low.startswith("<command-message>"):
+        return True
+    return False
+
+
 def format_trajectory_for_extractor(episode: Episode) -> str:
-    """Render an Episode as a compact text block for the extractor."""
-    lines: list[str] = []
-    lines.append(f"USER PROMPT: {episode.user_prompt}")
-    lines.append(f"OUTCOME: {episode.outcome.value}")
-    if episode.activated_skills:
-        lines.append(
-            f"SKILLS THAT WERE ACTIVE: {', '.join(episode.activated_skills)}"
-        )
-    lines.append("")
-    lines.append("TRAJECTORY:")
+    """Render an Episode as a compact block wrapped in XML tags for the extractor.
 
+    The XML wrapper is deliberate: without clear structural boundaries,
+    long trajectories caused Sonnet to "continue the document" instead
+    of analyze it (observed during dogfooding).
+    """
     traj = episode.trajectory
-    if not traj.tool_calls and not traj.assistant_turns:
-        lines.append("(no tool calls)")
-    else:
-        # interleave assistant turns and tool calls in original order
-        for i, tc in enumerate(traj.tool_calls):
-            lines.append(_format_tool_call(tc, i))
-        if traj.assistant_turns:
-            lines.append("")
-            lines.append("ASSISTANT REASONING:")
-            for turn in traj.assistant_turns[-5:]:  # last 5 only
-                lines.append(f"- {_short(turn, 300)}")
 
-    return "\n".join(lines)
+    # derive a clean user-goal line; fall back to empty if it's slash-command noise
+    goal = episode.user_prompt if not _is_noise_prompt(episode.user_prompt) else ""
+    if not goal and traj.assistant_turns:
+        # first assistant turn often restates the goal
+        goal = _short(traj.assistant_turns[0], 300)
+
+    head: list[str] = []
+    head.append("<episode>")
+    head.append(f"<goal>{_short(goal, 500) or '(not captured)'}</goal>")
+    head.append(f"<outcome>{episode.outcome.value}</outcome>")
+    head.append(f"<total_tool_calls>{len(traj.tool_calls)}</total_tool_calls>")
+
+    head.append("<trajectory>")
+
+    if not traj.tool_calls:
+        head.append("(no tool calls)")
+    else:
+        calls = traj.tool_calls
+        if len(calls) <= MAX_TOOL_CALLS_BEFORE_ELISION:
+            for i, tc in enumerate(calls):
+                head.append(_format_tool_call(tc, i))
+        else:
+            head.append(f"-- first {MAX_TOOL_CALLS_KEPT_HEAD} tool calls --")
+            for i, tc in enumerate(calls[:MAX_TOOL_CALLS_KEPT_HEAD]):
+                head.append(_format_tool_call(tc, i))
+            skipped = len(calls) - MAX_TOOL_CALLS_KEPT_HEAD - MAX_TOOL_CALLS_KEPT_TAIL
+            head.append(
+                f"\n-- [{skipped} tool calls elided for length] --\n"
+            )
+            head.append(f"-- last {MAX_TOOL_CALLS_KEPT_TAIL} tool calls --")
+            start = len(calls) - MAX_TOOL_CALLS_KEPT_TAIL
+            for i, tc in enumerate(calls[start:], start=start):
+                head.append(_format_tool_call(tc, i))
+
+    head.append("</trajectory>")
+
+    if traj.assistant_turns:
+        head.append("<assistant_reasoning_sample>")
+        for turn in traj.assistant_turns[-3:]:
+            head.append(f"- {_short(turn, 300)}")
+        head.append("</assistant_reasoning_sample>")
+
+    head.append("</episode>")
+    head.append("")
+    head.append(
+        "Now produce your JSON array. Remember: empty `[]` is a valid and "
+        "often correct answer. Respond with the array and nothing else."
+    )
+
+    return "\n".join(head)
 
 
 class Extractor:

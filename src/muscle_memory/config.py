@@ -23,8 +23,12 @@ from muscle_memory.models import Scope
 
 APP_NAME = "muscle-memory"
 
-# Default to Haiku 4.5 — cheap, fast, plenty for extraction.
-DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+# Default to Sonnet 4.6 — extraction is judgment work (recurring pattern?
+# non-obvious? procedural vs factual?) and smaller models anchor on
+# prompt examples. Sonnet is called infrequently (once per session),
+# so cost impact is small; quality compounds. Users can opt into Haiku
+# via MM_LLM_MODEL=claude-haiku-4-5 for cost-sensitive setups.
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_EMBEDDER = "fastembed"
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_EMBEDDING_DIMS = 384
@@ -127,8 +131,17 @@ class Config:
 
         # llm
         llm_provider = _env("MM_LLM_PROVIDER", DEFAULT_LLM_PROVIDER) or DEFAULT_LLM_PROVIDER
-        llm_model = _env("MM_LLM_MODEL", DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
-        llm_api_key = _env("MM_LLM_API_KEY") or _env("ANTHROPIC_API_KEY")
+        # model default depends on provider
+        if llm_provider.lower() == "openai":
+            llm_model = _env("MM_LLM_MODEL", "gpt-4o-mini") or "gpt-4o-mini"
+        else:
+            llm_model = _env("MM_LLM_MODEL", DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
+        # api key env var fallback per-provider
+        provider_key_env = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+        }.get(llm_provider.lower(), "ANTHROPIC_API_KEY")
+        llm_api_key = _env("MM_LLM_API_KEY") or _env(provider_key_env)
 
         # embedder
         embedder = _env("MM_EMBEDDER", DEFAULT_EMBEDDER) or DEFAULT_EMBEDDER

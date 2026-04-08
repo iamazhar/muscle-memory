@@ -30,8 +30,11 @@ Skills are **on-demand** (not always in context), **execution-scored** (good one
 ## Quickstart
 
 ```bash
-# install
+# install (Anthropic default)
 uv tool install muscle-memory
+
+# or with OpenAI support baked in
+uv tool install 'muscle-memory[openai]'
 
 # in your project
 cd ~/code/my-project
@@ -48,6 +51,25 @@ mm list
 mm show <skill-id>
 mm stats
 ```
+
+## Authentication
+
+`muscle-memory` needs an LLM for skill extraction (runs after each session,
+not on every prompt). **It cannot reuse your Claude Code subscription auth**
+— that's a known limitation; Anthropic does not currently expose a
+subscription-capable SDK for third-party tools.
+
+Your options:
+
+| Provider | Setup | Cost |
+|---|---|---|
+| **Anthropic** (default) | `export ANTHROPIC_API_KEY=sk-ant-...` — **needs API credits, not a Max/Pro subscription** | ~$0.001 / session with Haiku 4.5 |
+| **OpenAI** | `export OPENAI_API_KEY=sk-...` and `export MM_LLM_PROVIDER=openai` | ~$0.0005 / session with gpt-4o-mini |
+| **Local / Ollama** | *(planned, not yet implemented)* | free |
+
+If you already use Claude Code via a Max/Pro subscription, you'll still
+need a separate Anthropic API key with billing credits, or use OpenAI.
+See [docs/authentication.md](docs/authentication.md) for details.
 
 ## How it works
 

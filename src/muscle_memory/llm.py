@@ -169,8 +169,110 @@ def _find_balanced(s: str) -> str:
     raise ValueError("unbalanced JSON")
 
 
+class OpenAILLM:
+    """OpenAI client for structured extraction. Uses the Chat Completions API
+    with `response_format={'type': 'json_object'}` for reliable JSON output.
+
+    Install with: `uv tool install 'muscle-memory[openai]'` or just
+    `pip install openai` in your env. Reads OPENAI_API_KEY from env by
+    default; override via `MM_LLM_API_KEY`.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        api_key: str | None = None,
+    ):
+        try:
+            from openai import OpenAI  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "openai package not installed. "
+                "Run: uv tool install 'muscle-memory[openai]' "
+                "or: pip install openai"
+            ) from exc
+        self.model = model
+        self._api_key = api_key
+        self._client: object | None = None
+
+    def _load(self) -> None:
+        if self._client is None:
+            from openai import OpenAI
+
+            kwargs: dict[str, Any] = {}
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+            self._client = OpenAI(**kwargs)
+
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> str:
+        self._load()
+        assert self._client is not None
+        resp = self._client.chat.completions.create(  # type: ignore[attr-defined]
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        return resp.choices[0].message.content or ""
+
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> Any:
+        """OpenAI's JSON mode requires a top-level object, but our
+        extractor expects a list. We wrap the instruction so the model
+        returns `{"skills": [...]}` and we unwrap it here.
+        """
+        self._load()
+        assert self._client is not None
+
+        wrapped_system = (
+            system
+            + "\n\nReturn a JSON object with a single key \"skills\" whose "
+              "value is the JSON array described above. "
+              "Example: {\"skills\": [ ... ]}"
+        )
+
+        resp = self._client.chat.completions.create(  # type: ignore[attr-defined]
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": wrapped_system},
+                {"role": "user", "content": user},
+            ],
+        )
+        text = resp.choices[0].message.content or "{}"
+        data = _extract_json(text)
+        if isinstance(data, dict) and "skills" in data:
+            return data["skills"]
+        # fall back to whatever came back
+        return data
+
+
 def make_llm(config: Config) -> LLM:
     provider = config.llm_provider.lower()
     if provider == "anthropic":
         return AnthropicLLM(model=config.llm_model, api_key=config.llm_api_key)
+    if provider == "openai":
+        # sensible default when user sets provider but not model
+        model = config.llm_model
+        if model.startswith("claude"):
+            model = "gpt-4o-mini"
+        return OpenAILLM(model=model, api_key=config.llm_api_key)
     raise ValueError(f"Unknown LLM provider: {provider}")

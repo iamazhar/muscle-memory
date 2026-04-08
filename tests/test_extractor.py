@@ -130,4 +130,75 @@ def test_format_trajectory_includes_errors(successful_episode: Episode) -> None:
     assert "ModuleNotFoundError" in out
     assert "test-runner.sh" in out
     assert "5 passed" in out
-    assert "OUTCOME: success" in out
+    assert "<outcome>success</outcome>" in out
+    assert "<trajectory>" in out
+    assert "</trajectory>" in out
+
+
+def test_format_trajectory_elides_only_very_long_histories() -> None:
+    """Elision kicks in above MAX_TOOL_CALLS_BEFORE_ELISION; shorter trajectories
+    stay intact because the juicy recovery/error events often live in the middle."""
+    from muscle_memory.extractor import (
+        MAX_TOOL_CALLS_BEFORE_ELISION,
+        MAX_TOOL_CALLS_KEPT_HEAD,
+    )
+    from muscle_memory.models import Episode, ToolCall, Trajectory, Outcome
+
+    # just over the threshold
+    n = MAX_TOOL_CALLS_BEFORE_ELISION + 50
+    calls = [
+        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i))
+        for i in range(n)
+    ]
+    ep = Episode(
+        user_prompt="x",
+        trajectory=Trajectory(tool_calls=calls),
+        outcome=Outcome.SUCCESS,
+    )
+    out = format_trajectory_for_extractor(ep)
+    assert "elided for length" in out
+    assert "call-0 " in out
+    assert f"call-{n - 1} " in out
+    mid = MAX_TOOL_CALLS_KEPT_HEAD + 20
+    assert f"call-{mid} " not in out
+
+
+def test_format_trajectory_keeps_medium_histories_whole() -> None:
+    """Trajectories under the threshold should NOT be elided — the
+    interesting events often live in the middle of a recovery."""
+    from muscle_memory.extractor import MAX_TOOL_CALLS_BEFORE_ELISION
+    from muscle_memory.models import Episode, ToolCall, Trajectory, Outcome
+
+    n = MAX_TOOL_CALLS_BEFORE_ELISION - 1
+    calls = [
+        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i))
+        for i in range(n)
+    ]
+    ep = Episode(
+        user_prompt="x",
+        trajectory=Trajectory(tool_calls=calls),
+        outcome=Outcome.SUCCESS,
+    )
+    out = format_trajectory_for_extractor(ep)
+    assert "elided for length" not in out
+    # every call should be present
+    assert "call-0 " in out
+    assert f"call-{n // 2} " in out
+    assert f"call-{n - 1} " in out
+
+
+def test_format_trajectory_drops_slash_command_noise_from_goal() -> None:
+    """The extractor should not treat /model caveat text as the user's goal."""
+    from muscle_memory.models import Episode, Trajectory, ToolCall
+
+    ep = Episode(
+        user_prompt="<local-command-caveat>Caveat: slash command stuff</local-command-caveat>",
+        trajectory=Trajectory(
+            tool_calls=[ToolCall(name="Bash", arguments={"command": "ls"}, result="x")],
+            assistant_turns=["The user wants me to list files."],
+        ),
+    )
+    out = format_trajectory_for_extractor(ep)
+    assert "local-command-caveat" not in out.split("<trajectory>")[0]
+    # should fall back to the assistant's rephrasing
+    assert "list files" in out
