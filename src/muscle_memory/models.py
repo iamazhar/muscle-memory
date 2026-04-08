@@ -123,6 +123,14 @@ class Skill(BaseModel):
     maturity: Maturity = Maturity.CANDIDATE
     source_episode_ids: list[str] = Field(default_factory=list)
 
+    # v0.2 — refinement state
+    refinement_count: int = 0
+    previous_text: dict[str, str] | None = Field(
+        default=None,
+        description="Most recent pre-refinement state, for rollback. "
+        "Keys: activation, execution, termination.",
+    )
+
     # timestamps
     created_at: datetime = Field(default_factory=_now)
     last_used_at: datetime | None = None

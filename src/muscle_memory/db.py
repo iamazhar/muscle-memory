@@ -25,7 +25,7 @@ from muscle_memory.models import (
     Trajectory,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -107,6 +107,8 @@ class Store:
                     failures INTEGER NOT NULL DEFAULT 0,
                     maturity TEXT NOT NULL DEFAULT 'candidate',
                     source_episode_ids TEXT NOT NULL DEFAULT '[]',
+                    refinement_count INTEGER NOT NULL DEFAULT 0,
+                    previous_text TEXT,
                     created_at TEXT NOT NULL,
                     last_used_at TEXT,
                     last_refined_at TEXT
@@ -147,11 +149,40 @@ class Store:
             row = cur.fetchone()
             if row is None:
                 conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
+                    "INSERT INTO schema_version (version) VALUES (?)",
+                    (SCHEMA_VERSION,),
                 )
+            else:
+                self._migrate(conn, current_version=int(row["version"]))
             conn.commit()
         finally:
             conn.close()
+
+    def _migrate(self, conn: sqlite3.Connection, *, current_version: int) -> None:
+        """Apply idempotent ALTER TABLE migrations for schema version bumps.
+
+        SQLite supports `ADD COLUMN` but not `ADD COLUMN IF NOT EXISTS`,
+        so we check existing columns before altering.
+        """
+        if current_version >= SCHEMA_VERSION:
+            return
+
+        existing_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(skills)").fetchall()
+        }
+
+        # v0.2 — refinement state columns on skills
+        if "refinement_count" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE skills ADD COLUMN refinement_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if "previous_text" not in existing_cols:
+            conn.execute("ALTER TABLE skills ADD COLUMN previous_text TEXT")
+
+        conn.execute(
+            "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
+        )
 
     # ------------------------------------------------------------------
     # skills
@@ -172,8 +203,9 @@ class Store:
             INSERT INTO skills (
                 id, activation, execution, termination, tool_hints, tags, scope,
                 score, invocations, successes, failures, maturity,
-                source_episode_ids, created_at, last_used_at, last_refined_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_episode_ids, refinement_count, previous_text,
+                created_at, last_used_at, last_refined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 skill.id,
@@ -189,6 +221,8 @@ class Store:
                 skill.failures,
                 skill.maturity.value,
                 _dumps(skill.source_episode_ids),
+                skill.refinement_count,
+                _dumps(skill.previous_text) if skill.previous_text else None,
                 _iso(skill.created_at),
                 _iso(skill.last_used_at),
                 _iso(skill.last_refined_at),
@@ -226,6 +260,8 @@ class Store:
                     failures = ?,
                     maturity = ?,
                     source_episode_ids = ?,
+                    refinement_count = ?,
+                    previous_text = ?,
                     last_used_at = ?,
                     last_refined_at = ?
                 WHERE id = ?
@@ -243,6 +279,8 @@ class Store:
                     skill.failures,
                     skill.maturity.value,
                     _dumps(skill.source_episode_ids),
+                    skill.refinement_count,
+                    _dumps(skill.previous_text) if skill.previous_text else None,
                     _iso(skill.last_used_at),
                     _iso(skill.last_refined_at),
                     skill.id,
@@ -416,6 +454,33 @@ class Store:
         finally:
             conn.close()
 
+    def find_episodes_for_skill(
+        self, skill_id: str, *, limit: int = 10
+    ) -> list[Episode]:
+        """Return the most recent episodes where this skill was activated.
+
+        Used by the refinement loop to look up trajectories for
+        semantic gradient extraction and PPO-Gate verification.
+        Walks recent episodes in memory (activated_skills is a JSON
+        list, not indexed) — fine for reasonable episode counts.
+        """
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM episodes ORDER BY started_at DESC LIMIT ?",
+                (limit * 10,),  # scan more to find enough matches
+            ).fetchall()
+            matches: list[Episode] = []
+            for row in rows:
+                activated = json.loads(row["activated_skills"] or "[]")
+                if skill_id in activated:
+                    matches.append(_row_to_episode(row))
+                    if len(matches) >= limit:
+                        break
+            return matches
+        finally:
+            conn.close()
+
 
 # ----------------------------------------------------------------------
 # row -> model hydration helpers
@@ -423,6 +488,19 @@ class Store:
 
 
 def _row_to_skill(row: sqlite3.Row) -> Skill:
+    # `previous_text` and `refinement_count` were added in schema v2;
+    # sqlite3.Row access for a missing column returns IndexError, so
+    # guard with a fallback to support older DBs mid-migration.
+    try:
+        refinement_count = row["refinement_count"]
+    except (IndexError, KeyError):
+        refinement_count = 0
+    try:
+        prev_raw = row["previous_text"]
+    except (IndexError, KeyError):
+        prev_raw = None
+    previous_text = json.loads(prev_raw) if prev_raw else None
+
     return Skill(
         id=row["id"],
         activation=row["activation"],
@@ -437,6 +515,8 @@ def _row_to_skill(row: sqlite3.Row) -> Skill:
         failures=row["failures"],
         maturity=Maturity(row["maturity"]),
         source_episode_ids=json.loads(row["source_episode_ids"]),
+        refinement_count=refinement_count,
+        previous_text=previous_text,
         created_at=_parse_iso(row["created_at"]),  # type: ignore[arg-type]
         last_used_at=_parse_iso(row["last_used_at"]),
         last_refined_at=_parse_iso(row["last_refined_at"]),

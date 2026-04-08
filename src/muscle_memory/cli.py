@@ -211,6 +211,164 @@ def stats() -> None:
 
 
 @app.command()
+def refine(
+    skill_id: Optional[str] = typer.Argument(
+        None, help="Skill id or prefix to refine. Omit with --auto to sweep."
+    ),
+    auto: bool = typer.Option(
+        False, "--auto", help="Refine every skill that meets auto-trigger criteria."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Run refinement but do not persist changes."
+    ),
+    episodes: int = typer.Option(
+        5,
+        "--episodes",
+        "-n",
+        help="Max stored episodes to use as evidence per refinement.",
+    ),
+    rollback: bool = typer.Option(
+        False, "--rollback", help="Restore the previous skill text (undoes one refinement)."
+    ),
+) -> None:
+    """Non-parametric PPO refinement of one or all skills.
+
+    Runs a three-stage process per skill:
+
+      1. Extract a semantic gradient from recent trajectories (LLM call)
+      2. Rewrite the skill text applying that gradient (LLM call)
+      3. Verify via LLM-judge across stored trajectories; accept only
+         if the revision demonstrably outperforms the original
+
+    Examples:
+
+      mm refine eab176c6             # refine one specific skill
+      mm refine --auto               # sweep all skills meeting criteria
+      mm refine abc123 --dry-run     # dry-run a specific skill
+      mm refine abc123 --rollback    # undo the most recent refinement
+    """
+    from muscle_memory.llm import make_llm
+    from muscle_memory.refine import (
+        RefinementResult,
+        refine_skill,
+        should_auto_refine,
+    )
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+
+    if rollback:
+        if not skill_id:
+            console.print("[red]--rollback requires a skill id.[/red]")
+            raise typer.Exit(1)
+        skill = _resolve_skill(store, skill_id)
+        if not skill.previous_text:
+            console.print(
+                f"[yellow]Skill {skill.id[:8]} has no previous text to rollback to.[/yellow]"
+            )
+            raise typer.Exit(1)
+        restored_activation = skill.previous_text.get("activation", skill.activation)
+        restored_execution = skill.previous_text.get("execution", skill.execution)
+        restored_termination = skill.previous_text.get(
+            "termination", skill.termination
+        )
+        skill.activation = restored_activation
+        skill.execution = restored_execution
+        skill.termination = restored_termination
+        skill.previous_text = None
+        skill.refinement_count = max(0, skill.refinement_count - 1)
+        store.update_skill(skill)
+        console.print(
+            f"[green]Rolled back {skill.id[:8]} to previous text.[/green]"
+        )
+        return
+
+    targets: list[Skill] = []
+    if auto:
+        for s in store.list_skills():
+            if should_auto_refine(s):
+                targets.append(s)
+        if not targets:
+            console.print("[green]No skills meet auto-refine criteria.[/green]")
+            return
+        console.print(
+            f"Sweeping [bold]{len(targets)}[/bold] skill(s) matching "
+            f"auto-refine criteria (failures ≥ 2, score ≤ 0.6, invocations ≥ 5)."
+        )
+    else:
+        if not skill_id:
+            console.print(
+                "[red]Need a skill id, or --auto to sweep.[/red]"
+            )
+            raise typer.Exit(1)
+        targets = [_resolve_skill(store, skill_id)]
+
+    llm = make_llm(cfg)
+    results: list[RefinementResult] = []
+
+    for skill in targets:
+        console.print(
+            f"\n[cyan]Refining {skill.id[:8]}[/cyan] "
+            f"({skill.successes}/{skill.invocations} successes, "
+            f"score {skill.score:.2f})"
+        )
+        ep_list = store.find_episodes_for_skill(skill.id, limit=episodes)
+        if not ep_list:
+            console.print(
+                "  [yellow]No stored trajectories — skipping[/yellow]"
+            )
+            continue
+
+        result = refine_skill(
+            skill,
+            ep_list,
+            llm,
+            store=None if dry_run else store,
+        )
+        results.append(result)
+        _print_refinement_result(result, dry_run=dry_run)
+
+    accepted = sum(1 for r in results if r.accepted)
+    rejected = len(results) - accepted
+    console.print(
+        f"\n[bold]Refinement complete.[/bold] "
+        f"Accepted: [green]{accepted}[/green]   "
+        f"Rejected: [yellow]{rejected}[/yellow]"
+        + ("   [dim](dry-run — no changes written)[/dim]" if dry_run else "")
+    )
+
+
+def _print_refinement_result(result, *, dry_run: bool) -> None:
+    from rich.panel import Panel
+    from rich.text import Text
+
+    if not result.accepted:
+        console.print(
+            f"  [yellow]✗ rejected[/yellow]: {result.rejection_reason or 'unknown'}"
+        )
+        if result.verdicts:
+            console.print(
+                f"    mean judge score: {result.mean_judge_score:+.2f} "
+                f"across {len(result.verdicts)} verdicts"
+            )
+        return
+
+    console.print(
+        f"  [green]✓ accepted[/green] (mean judge {result.mean_judge_score:+.2f} "
+        f"across {len(result.verdicts)} trajectories)"
+    )
+    if result.gradient:
+        console.print(f"    [dim]root cause:[/dim] {result.gradient.root_cause}")
+    if dry_run and result.revised_skill:
+        body = (
+            f"[bold]activation[/bold]\n{result.revised_skill.activation}\n\n"
+            f"[bold]execution[/bold]\n{result.revised_skill.execution}\n\n"
+            f"[bold]termination[/bold]\n{result.revised_skill.termination}"
+        )
+        console.print(Panel(body, title="proposed revision (dry-run)"))
+
+
+@app.command()
 def rescore() -> None:
     """Re-run the outcome heuristic on every episode and re-credit skills.
 

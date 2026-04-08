@@ -77,11 +77,33 @@ def main(argv: list[str] | None = None) -> int:
         # wait — Claude Code's hook has to return quickly.
         _fire_async_extraction(episode.id, cfg.db_path)
 
+        # v0.2: also fire a refinement sweep. It's a no-op unless
+        # some skill meets the auto-refine criteria (failures ≥ 2,
+        # score ≤ 0.6, invocations ≥ 5). Runs detached.
+        if _any_skill_needs_refinement(store):
+            _fire_async_refinement(cfg.db_path)
+
     except Exception:
         # never break the user's shutdown path
         return 0
 
     return 0
+
+
+def _any_skill_needs_refinement(store: Store) -> bool:
+    """Cheap pre-check: does any skill meet the auto-refine criteria?
+
+    Avoids spawning a subprocess when refinement would be a no-op.
+    """
+    try:
+        from muscle_memory.refine import should_auto_refine
+
+        for skill in store.list_skills():
+            if should_auto_refine(skill):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def parse_transcript(path: Path) -> Trajectory:
@@ -208,6 +230,28 @@ def _fire_async_extraction(episode_id: str, db_path: Path) -> None:
                 f.write(f"{episode_id}\n")
         except Exception:
             pass
+
+
+def _fire_async_refinement(db_path: Path) -> None:
+    """Start a detached `mm refine --auto` sweep in the background.
+
+    Runs after the extractor so it sees the latest skill state. This
+    is the v0.2 integration point — the Scorer may have marked some
+    skills eligible for auto-refinement after the current episode's
+    credit pass, and we kick off a background refinement sweep here.
+    """
+    try:
+        subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "muscle_memory", "refine", "--auto"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env={**os.environ, "MM_DB_PATH": str(db_path)},
+            close_fds=True,
+        )
+    except Exception:
+        pass  # best-effort; never block the hook
 
 
 if __name__ == "__main__":
