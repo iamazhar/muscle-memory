@@ -62,19 +62,16 @@ def test_extractor_returns_empty_on_failed_episode(
         trajectory=successful_trajectory,
         outcome=Outcome.FAILURE,
     )
-    ex = Extractor(FakeLLM([{"activation": "a", "execution": "b", "termination": "c"}]), sample_config)
+    ex = Extractor(
+        FakeLLM([{"activation": "a", "execution": "b", "termination": "c"}]), sample_config
+    )
     assert ex.extract(ep) == []
 
 
-def test_extractor_respects_max_skills(
-    successful_episode: Episode, sample_config: Config
-) -> None:
+def test_extractor_respects_max_skills(successful_episode: Episode, sample_config: Config) -> None:
     sample_config.extractor_max_skills_per_episode = 2
     llm = FakeLLM(
-        [
-            {"activation": f"skill {i}", "execution": "e", "termination": "t"}
-            for i in range(5)
-        ]
+        [{"activation": f"skill {i}", "execution": "e", "termination": "t"} for i in range(5)]
     )
     ex = Extractor(llm, sample_config)
     skills = ex.extract(successful_episode)
@@ -142,13 +139,12 @@ def test_format_trajectory_elides_only_very_long_histories() -> None:
         MAX_TOOL_CALLS_BEFORE_ELISION,
         MAX_TOOL_CALLS_KEPT_HEAD,
     )
-    from muscle_memory.models import Episode, ToolCall, Trajectory, Outcome
+    from muscle_memory.models import Episode, Outcome, ToolCall, Trajectory
 
     # just over the threshold
     n = MAX_TOOL_CALLS_BEFORE_ELISION + 50
     calls = [
-        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i))
-        for i in range(n)
+        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i)) for i in range(n)
     ]
     ep = Episode(
         user_prompt="x",
@@ -167,12 +163,11 @@ def test_format_trajectory_keeps_medium_histories_whole() -> None:
     """Trajectories under the threshold should NOT be elided — the
     interesting events often live in the middle of a recovery."""
     from muscle_memory.extractor import MAX_TOOL_CALLS_BEFORE_ELISION
-    from muscle_memory.models import Episode, ToolCall, Trajectory, Outcome
+    from muscle_memory.models import Episode, Outcome, ToolCall, Trajectory
 
     n = MAX_TOOL_CALLS_BEFORE_ELISION - 1
     calls = [
-        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i))
-        for i in range(n)
+        ToolCall(name="Bash", arguments={"command": f"echo {i}"}, result=str(i)) for i in range(n)
     ]
     ep = Episode(
         user_prompt="x",
@@ -214,7 +209,7 @@ def test_user_prompt_hook_skips_shell_escape_commands() -> None:
 
 def test_format_trajectory_drops_slash_command_noise_from_goal() -> None:
     """The extractor should not treat /model caveat text as the user's goal."""
-    from muscle_memory.models import Episode, Trajectory, ToolCall
+    from muscle_memory.models import Episode, ToolCall, Trajectory
 
     ep = Episode(
         user_prompt="<local-command-caveat>Caveat: slash command stuff</local-command-caveat>",

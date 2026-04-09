@@ -82,14 +82,16 @@ def main(argv: list[str] | None = None) -> int:
 
 def _extract_prompt(payload: dict[str, Any]) -> str:
     for key in ("prompt", "user_prompt", "message", "text"):
-        if key in payload and isinstance(payload[key], str):
-            return payload[key]
+        val = payload.get(key)
+        if isinstance(val, str):
+            return val
     # nested: payload['hook_event'] may contain the prompt
     hook_data = payload.get("hook_event") or {}
     if isinstance(hook_data, dict):
         for key in ("prompt", "user_prompt", "message"):
-            if isinstance(hook_data.get(key), str):
-                return hook_data[key]
+            nested_val = hook_data.get(key)
+            if isinstance(nested_val, str):
+                return nested_val
     return ""
 
 
@@ -106,11 +108,44 @@ _BANG_PREFIXES = (
 # Common shell command names that strongly suggest direct execution
 # (when the user prompt is just `foo bar` with no natural-language shape).
 _SHELL_CMD_HEADS = {
-    "ls", "cd", "cat", "head", "tail", "grep", "find", "pwd",
-    "git", "npm", "yarn", "uv", "pip", "python", "python3", "node",
-    "bash", "sh", "zsh", "which", "whoami", "env", "export", "echo",
-    "mm", "mkdir", "rm", "cp", "mv", "touch", "chmod", "chflags",
-    "curl", "wget", "ssh", "scp", "kubectl", "docker",
+    "ls",
+    "cd",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "pwd",
+    "git",
+    "npm",
+    "yarn",
+    "uv",
+    "pip",
+    "python",
+    "python3",
+    "node",
+    "bash",
+    "sh",
+    "zsh",
+    "which",
+    "whoami",
+    "env",
+    "export",
+    "echo",
+    "mm",
+    "mkdir",
+    "rm",
+    "cp",
+    "mv",
+    "touch",
+    "chmod",
+    "chflags",
+    "curl",
+    "wget",
+    "ssh",
+    "scp",
+    "kubectl",
+    "docker",
 }
 
 
@@ -187,7 +222,7 @@ def _format_context(hits: list[RetrievedSkill]) -> str:
         "Begin your response with ONE line in exactly this format so the user",
         "can see which playbook fired:",
         "",
-        f"> 🧠 **muscle-memory**: executing playbook — <title>",
+        "> 🧠 **muscle-memory**: executing playbook — <title>",
         "",
         f"Where `<title>` is one of: {titles_list}",
         "",
@@ -199,7 +234,7 @@ def _format_context(hits: list[RetrievedSkill]) -> str:
     for i, (hit, title) in enumerate(zip(hits, titles), start=1):
         s = hit.skill
         lines.append(
-            f"## Playbook {i} — \"{title}\""
+            f'## Playbook {i} — "{title}"'
             f" · {s.maturity.value}"
             f" · {s.successes}/{s.invocations} successes"
         )
@@ -214,9 +249,7 @@ def _format_context(hits: list[RetrievedSkill]) -> str:
     return "\n".join(lines)
 
 
-def _record_activation(
-    cfg: Config, session_id: str, skill_ids: list[str]
-) -> None:
+def _record_activation(cfg: Config, session_id: str, skill_ids: list[str]) -> None:
     if not session_id:
         return
     activations_dir = cfg.db_path.parent / "mm.activations"

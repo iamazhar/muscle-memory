@@ -112,7 +112,7 @@ class Config:
             resolved_scope = scope
         else:
             env_scope = _env("MM_SCOPE", Scope.PROJECT.value)
-            resolved_scope = Scope(env_scope)  # type: ignore[arg-type]
+            resolved_scope = Scope(str(env_scope))
 
         # project root detection
         project_root = find_project_root(start_dir)

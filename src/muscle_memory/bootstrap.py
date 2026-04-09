@@ -20,7 +20,7 @@ from muscle_memory.embeddings import Embedder
 from muscle_memory.extractor import ExtractionError, Extractor
 from muscle_memory.hooks.stop import parse_transcript
 from muscle_memory.llm import LLM
-from muscle_memory.models import Episode, Skill
+from muscle_memory.models import Episode
 from muscle_memory.outcomes import infer_outcome
 
 
@@ -167,5 +167,3 @@ def _looks_fatal(msg: str) -> bool:
         "invalid_request_error",
     )
     return any(m in low for m in fatal_markers)
-
-

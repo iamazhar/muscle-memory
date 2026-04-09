@@ -12,7 +12,6 @@ Failure modes we care about:
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 import time
 from io import StringIO
@@ -22,19 +21,16 @@ from unittest.mock import patch
 import pytest
 
 from muscle_memory.db import Store
-from muscle_memory.hooks.stop import main as stop_main, parse_transcript
+from muscle_memory.hooks.stop import main as stop_main
+from muscle_memory.hooks.stop import parse_transcript
 from muscle_memory.hooks.user_prompt import main as user_prompt_main
 from muscle_memory.models import (
-    Episode,
-    Maturity,
     Outcome,
-    Scope,
     Skill,
     ToolCall,
     Trajectory,
 )
 from muscle_memory.outcomes import infer_outcome
-
 
 # ----------------------------------------------------------------------
 # Malformed / hostile input never crashes hooks
@@ -53,7 +49,7 @@ class TestHookResilience:
             '{"unrelated": "thing"}',  # valid JSON but no prompt
             '{"prompt": null}',  # null prompt
             '{"prompt": 12345}',  # wrong type
-            '\x00\x01\x02',  # binary garbage
+            "\x00\x01\x02",  # binary garbage
         ]
         for case in cases:
             stdin = StringIO(case)
@@ -73,7 +69,7 @@ class TestHookResilience:
             '{"session_id": null}',
             '{"transcript_path": "/nowhere/at/all"}',
             '{"session_id": "x", "transcript_path": 123}',
-            '\x00\x01\x02',
+            "\x00\x01\x02",
         ]
         for case in cases:
             stdin = StringIO(case)
@@ -335,9 +331,7 @@ class TestConcurrency:
             while not stop:
                 try:
                     reader_store.list_skills()
-                    reader_store.search_skills_by_embedding(
-                        [0.1, 0.2, 0.3, 0.4], top_k=3
-                    )
+                    reader_store.search_skills_by_embedding([0.1, 0.2, 0.3, 0.4], top_k=3)
                 except Exception as e:  # noqa: BLE001
                     read_errors.append(e)
                 time.sleep(0.001)

@@ -80,9 +80,7 @@ def install(
             already.append(event)
 
     if settings != original:
-        settings_path.write_text(
-            json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-        )
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
     return InstallReport(
         settings_path=settings_path,
@@ -107,9 +105,7 @@ def _ensure_hook(settings: dict[str, Any], event: str, command: str) -> bool:
         hooks[event] = event_hooks
 
     if not isinstance(event_hooks, list):
-        raise RuntimeError(
-            f".claude/settings.json hooks.{event} must be a list"
-        )
+        raise RuntimeError(f".claude/settings.json hooks.{event} must be a list")
 
     # Claude Code hook shape:
     # {
@@ -155,10 +151,7 @@ def uninstall(*, project_root: Path | None = None) -> InstallReport:
                 inner = [
                     h
                     for h in (group.get("hooks") or [])
-                    if not (
-                        isinstance(h, dict)
-                        and h.get("command", "").startswith("mm hook")
-                    )
+                    if not (isinstance(h, dict) and h.get("command", "").startswith("mm hook"))
                 ]
                 if inner:
                     group["hooks"] = inner
@@ -170,9 +163,7 @@ def uninstall(*, project_root: Path | None = None) -> InstallReport:
             elif event in hooks:
                 del hooks[event]
 
-        settings_path.write_text(
-            json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-        )
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
     return InstallReport(
         settings_path=settings_path,

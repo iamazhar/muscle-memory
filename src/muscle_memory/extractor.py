@@ -13,7 +13,7 @@ from typing import Any
 
 from muscle_memory.config import Config
 from muscle_memory.llm import LLM
-from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
+from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall
 
 
 class ExtractionError(RuntimeError):
@@ -28,9 +28,7 @@ class ExtractionError(RuntimeError):
 
 def _load_prompt_template() -> str:
     return (
-        resources.files("muscle_memory.prompts")
-        .joinpath("extract.md")
-        .read_text(encoding="utf-8")
+        resources.files("muscle_memory.prompts").joinpath("extract.md").read_text(encoding="utf-8")
     )
 
 
@@ -112,9 +110,7 @@ def format_trajectory_for_extractor(episode: Episode) -> str:
             for i, tc in enumerate(calls[:MAX_TOOL_CALLS_KEPT_HEAD]):
                 head.append(_format_tool_call(tc, i))
             skipped = len(calls) - MAX_TOOL_CALLS_KEPT_HEAD - MAX_TOOL_CALLS_KEPT_TAIL
-            head.append(
-                f"\n-- [{skipped} tool calls elided for length] --\n"
-            )
+            head.append(f"\n-- [{skipped} tool calls elided for length] --\n")
             head.append(f"-- last {MAX_TOOL_CALLS_KEPT_TAIL} tool calls --")
             start = len(calls) - MAX_TOOL_CALLS_KEPT_TAIL
             for i, tc in enumerate(calls[start:], start=start):

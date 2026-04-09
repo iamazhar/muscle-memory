@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -105,14 +104,13 @@ def init(
         )
     )
     console.print(
-        "\nNext: use Claude Code as usual. Optionally seed with "
-        "[bold]mm bootstrap[/bold].",
+        "\nNext: use Claude Code as usual. Optionally seed with [bold]mm bootstrap[/bold].",
     )
 
 
 @app.command("list")
 def list_skills(
-    maturity: Optional[Maturity] = typer.Option(None, "--maturity", "-m"),
+    maturity: Maturity | None = typer.Option(None, "--maturity", "-m"),
     limit: int = typer.Option(50, "--limit", "-n"),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
@@ -126,7 +124,9 @@ def list_skills(
         return
 
     if not skills:
-        console.print("[dim]No skills yet. Try [bold]mm bootstrap[/bold] to seed from history.[/dim]")
+        console.print(
+            "[dim]No skills yet. Try [bold]mm bootstrap[/bold] to seed from history.[/dim]"
+        )
         return
 
     table = Table(title=f"muscle-memory skills ({len(skills)})")
@@ -212,7 +212,7 @@ def stats() -> None:
 
 @app.command()
 def refine(
-    skill_id: Optional[str] = typer.Argument(
+    skill_id: str | None = typer.Argument(
         None, help="Skill id or prefix to refine. Omit with --auto to sweep."
     ),
     auto: bool = typer.Option(
@@ -269,18 +269,14 @@ def refine(
             raise typer.Exit(1)
         restored_activation = skill.previous_text.get("activation", skill.activation)
         restored_execution = skill.previous_text.get("execution", skill.execution)
-        restored_termination = skill.previous_text.get(
-            "termination", skill.termination
-        )
+        restored_termination = skill.previous_text.get("termination", skill.termination)
         skill.activation = restored_activation
         skill.execution = restored_execution
         skill.termination = restored_termination
         skill.previous_text = None
         skill.refinement_count = max(0, skill.refinement_count - 1)
         store.update_skill(skill)
-        console.print(
-            f"[green]Rolled back {skill.id[:8]} to previous text.[/green]"
-        )
+        console.print(f"[green]Rolled back {skill.id[:8]} to previous text.[/green]")
         return
 
     targets: list[Skill] = []
@@ -297,9 +293,7 @@ def refine(
         )
     else:
         if not skill_id:
-            console.print(
-                "[red]Need a skill id, or --auto to sweep.[/red]"
-            )
+            console.print("[red]Need a skill id, or --auto to sweep.[/red]")
             raise typer.Exit(1)
         targets = [_resolve_skill(store, skill_id)]
 
@@ -314,9 +308,7 @@ def refine(
         )
         ep_list = store.find_episodes_for_skill(skill.id, limit=episodes)
         if not ep_list:
-            console.print(
-                "  [yellow]No stored trajectories — skipping[/yellow]"
-            )
+            console.print("  [yellow]No stored trajectories — skipping[/yellow]")
             continue
 
         result = refine_skill(
@@ -338,14 +330,11 @@ def refine(
     )
 
 
-def _print_refinement_result(result, *, dry_run: bool) -> None:
+def _print_refinement_result(result: Any, *, dry_run: bool) -> None:
     from rich.panel import Panel
-    from rich.text import Text
 
     if not result.accepted:
-        console.print(
-            f"  [yellow]✗ rejected[/yellow]: {result.rejection_reason or 'unknown'}"
-        )
+        console.print(f"  [yellow]✗ rejected[/yellow]: {result.rejection_reason or 'unknown'}")
         if result.verdicts:
             console.print(
                 f"    mean judge score: {result.mean_judge_score:+.2f} "
@@ -406,9 +395,7 @@ def rescore() -> None:
         ep.outcome = signal.outcome
         ep.reward = signal.reward
         outcome_counts[signal.outcome.value] += 1
-        store.update_episode_outcome(
-            ep.id, outcome=signal.outcome, reward=signal.reward
-        )
+        store.update_episode_outcome(ep.id, outcome=signal.outcome, reward=signal.reward)
         scorer.credit_episode(ep)
 
     console.print(
@@ -441,10 +428,7 @@ def prune(
 
     # still run the capacity pass
     report = scorer.prune(min_invocations_before_prune=min_invocations)
-    console.print(
-        f"[green]Pruned {len(report.removed)} skills.[/green] "
-        f"{report.kept} remain."
-    )
+    console.print(f"[green]Pruned {len(report.removed)} skills.[/green] {report.kept} remain.")
 
 
 @app.command()
@@ -493,7 +477,8 @@ def bootstrap(
     days: int = typer.Option(30, "--days", "-d", help="Look back N days."),
     max_sessions: int = typer.Option(200, "--max-sessions"),
     project_only: bool = typer.Option(
-        True, "--project-only/--all-projects",
+        True,
+        "--project-only/--all-projects",
         help="Only consider sessions from the current project.",
     ),
 ) -> None:
@@ -582,9 +567,7 @@ def extract_episode_cmd(episode_id: str) -> None:
 
 @app.command()
 def dedup(
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Only show what would be consolidated."
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Only show what would be consolidated."),
     threshold: float = typer.Option(
         None,
         "--threshold",
@@ -645,8 +628,7 @@ def dedup(
         consolidated += len(group) - 1
 
     console.print(
-        f"[green]Collapsed {consolidated} duplicate skills.[/green] "
-        f"{store.count_skills()} remain."
+        f"[green]Collapsed {consolidated} duplicate skills.[/green] {store.count_skills()} remain."
     )
 
 
@@ -686,14 +668,12 @@ def _resolve_skill(store: Store, id_or_prefix: str) -> Skill:
         console.print(f"[red]No skill matching {id_or_prefix!r}[/red]")
         raise typer.Exit(1)
     if len(matches) > 1:
-        console.print(
-            f"[red]Ambiguous: {len(matches)} skills start with {id_or_prefix!r}[/red]"
-        )
+        console.print(f"[red]Ambiguous: {len(matches)} skills start with {id_or_prefix!r}[/red]")
         raise typer.Exit(1)
     return matches[0]
 
 
-def _skill_to_dict(s: Skill) -> dict:
+def _skill_to_dict(s: Skill) -> dict[str, Any]:
     return {
         "id": s.id,
         "activation": s.activation,

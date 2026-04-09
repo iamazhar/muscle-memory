@@ -20,19 +20,14 @@ import pytest
 from muscle_memory.db import Store
 from muscle_memory.models import Episode, Maturity, Outcome, Skill, ToolCall, Trajectory
 from muscle_memory.refine import (
-    ACCEPT_MEAN_THRESHOLD,
-    JudgeVerdict,
     RefinementError,
-    RefinementResult,
     SemanticGradient,
     apply_gradient,
     extract_gradient,
-    judge_one_trajectory,
     refine_skill,
     should_auto_refine,
     verify_refinement,
 )
-
 
 # ----------------------------------------------------------------------
 # helpers
@@ -306,7 +301,10 @@ class TestVerifyRefinement:
             ]
         )
         accepted, verdicts, reason = verify_refinement(
-            original, revised, [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")], llm
+            original,
+            revised,
+            [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")],
+            llm,
         )
         assert accepted is True
         assert reason is None
@@ -322,7 +320,10 @@ class TestVerifyRefinement:
             ]
         )
         accepted, _verdicts, reason = verify_refinement(
-            original, revised, [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")], llm
+            original,
+            revised,
+            [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")],
+            llm,
         )
         assert accepted is False
         assert "strong regression" in reason
@@ -337,7 +338,10 @@ class TestVerifyRefinement:
             ]
         )
         accepted, _verdicts, reason = verify_refinement(
-            original, revised, [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")], llm
+            original,
+            revised,
+            [_failing_episode("e1"), _failing_episode("e2"), _failing_episode("e3")],
+            llm,
         )
         assert accepted is False
         assert "mean judge score" in reason
@@ -366,17 +370,21 @@ class TestVerifyRefinement:
 
     def test_judge_error_counts_as_neutral(self) -> None:
         original, revised = self._make_original_and_revised()
+
         # first call succeeds +2, second crashes, third succeeds +1
         # (exploding LLM isn't compatible with ScriptedLLM so we build inline)
         class HalfExploding:
             model = "half"
+
             def __init__(self):
                 self.calls = 0
+
             def complete_json(self, *a, **k):
                 self.calls += 1
                 if self.calls == 2:
                     raise RuntimeError("mid-judge failure")
                 return {"score": 2, "reason": "works"}
+
             def complete_text(self, *a, **k):
                 return ""
 

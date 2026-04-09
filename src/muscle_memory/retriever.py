@@ -21,7 +21,6 @@ from muscle_memory.db import Store
 from muscle_memory.embeddings import Embedder
 from muscle_memory.models import Maturity, Skill
 
-
 # maturity weight — proven skills beat candidates at equal distance
 _MATURITY_BONUS: dict[Maturity, float] = {
     Maturity.CANDIDATE: 0.00,
@@ -79,13 +78,8 @@ class Retriever:
             if distance > 1.5:  # absurdly far
                 continue
 
-            bonus = (
-                _MATURITY_BONUS.get(skill.maturity, 0.0)
-                + (0.05 * min(skill.score, 1.0))
-            )
-            results.append(
-                RetrievedSkill(skill=skill, distance=distance, score_bonus=bonus)
-            )
+            bonus = _MATURITY_BONUS.get(skill.maturity, 0.0) + (0.05 * min(skill.score, 1.0))
+            results.append(RetrievedSkill(skill=skill, distance=distance, score_bonus=bonus))
 
         results.sort(key=lambda r: r.final_rank)
 

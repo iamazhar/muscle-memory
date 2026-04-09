@@ -33,8 +33,8 @@ import os
 import shutil
 import subprocess
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
@@ -171,9 +171,7 @@ def _stream_contains_marker(stream_output: str, needle: str = "🧠") -> bool:
 
 
 class TestMarkerVisibility:
-    def test_matching_prompt_emits_brain_marker_in_stream(
-        self, scratch_project: Path
-    ) -> None:
+    def test_matching_prompt_emits_brain_marker_in_stream(self, scratch_project: Path) -> None:
         """A prompt that matches a seeded skill should cause Claude to
         emit the 🧠 muscle-memory marker.
 
@@ -200,8 +198,7 @@ class TestMarkerVisibility:
         )
         assert result.returncode == 0, f"claude failed: {result.stderr}"
         assert _stream_contains_marker(result.stdout, "🧠"), (
-            "🧠 marker not found anywhere in the stream. "
-            f"First 500 chars: {result.stdout[:500]}"
+            f"🧠 marker not found anywhere in the stream. First 500 chars: {result.stdout[:500]}"
         )
         assert _stream_contains_marker(result.stdout, "muscle-memory"), (
             "'muscle-memory' substring not found in any assistant text block"
@@ -274,9 +271,7 @@ class TestImperativeExecution:
             f"Expected file: {marker_file}"
         )
 
-    def test_mm_state_updates_after_executed_skill(
-        self, scratch_project: Path
-    ) -> None:
+    def test_mm_state_updates_after_executed_skill(self, scratch_project: Path) -> None:
         """After a full cycle: skill activated, executed, session ended,
         Stop hook fired, scorer credited. The DB state should reflect it."""
         _seed_skill(
@@ -329,9 +324,7 @@ class TestImperativeExecution:
 
 
 class TestShellEscapeGate:
-    def test_bang_command_does_not_activate_skill(
-        self, scratch_project: Path
-    ) -> None:
+    def test_bang_command_does_not_activate_skill(self, scratch_project: Path) -> None:
         """Bang commands should not fire the hook at all — no injection,
         no marker. We can't directly observe the hook NOT firing in a
         claude -p run, but we can seed a skill and then submit a bang
@@ -357,9 +350,7 @@ class TestShellEscapeGate:
 
 
 class TestNoMatchHandling:
-    def test_unrelated_prompt_has_no_execution_marker(
-        self, scratch_project: Path
-    ) -> None:
+    def test_unrelated_prompt_has_no_execution_marker(self, scratch_project: Path) -> None:
         """When no skill matches, Claude should proceed silently —
         no 🧠 marker emitted at all."""
         _seed_skill(
@@ -387,9 +378,7 @@ class TestNoMatchHandling:
 
 
 class TestHookWiringEndToEnd:
-    def test_fresh_init_produces_working_hook_invocation(
-        self, tmp_path: Path
-    ) -> None:
+    def test_fresh_init_produces_working_hook_invocation(self, tmp_path: Path) -> None:
         """A fresh `mm init` should yield a hook that can be invoked via
         subprocess with valid output (empty if no skills, or injection
         block if skills match)."""

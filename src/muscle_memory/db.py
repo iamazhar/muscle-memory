@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import sqlite_vec
 
@@ -168,8 +169,7 @@ class Store:
             return
 
         existing_cols = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(skills)").fetchall()
+            row["name"] for row in conn.execute("PRAGMA table_info(skills)").fetchall()
         }
 
         # v0.2 — refinement state columns on skills
@@ -180,9 +180,7 @@ class Store:
         if "previous_text" not in existing_cols:
             conn.execute("ALTER TABLE skills ADD COLUMN previous_text TEXT")
 
-        conn.execute(
-            "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
-        )
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
     # ------------------------------------------------------------------
     # skills
@@ -433,9 +431,7 @@ class Store:
                 ),
             )
 
-    def update_episode_outcome(
-        self, episode_id: str, *, outcome: Outcome, reward: float
-    ) -> None:
+    def update_episode_outcome(self, episode_id: str, *, outcome: Outcome, reward: float) -> None:
         """Update just the outcome/reward of an existing episode.
 
         Used by `mm rescore` after the outcome heuristic changes.
@@ -449,9 +445,7 @@ class Store:
     def get_episode(self, episode_id: str) -> Episode | None:
         conn = self._open()
         try:
-            row = conn.execute(
-                "SELECT * FROM episodes WHERE id = ?", (episode_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,)).fetchone()
             return _row_to_episode(row) if row else None
         finally:
             conn.close()
@@ -466,9 +460,7 @@ class Store:
         finally:
             conn.close()
 
-    def find_episodes_for_skill(
-        self, skill_id: str, *, limit: int = 10
-    ) -> list[Episode]:
+    def find_episodes_for_skill(self, skill_id: str, *, limit: int = 10) -> list[Episode]:
         """Return the most recent episodes where this skill was activated.
 
         Used by the refinement loop to look up trajectories for

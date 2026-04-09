@@ -66,23 +66,16 @@ class Scorer:
 
         # rule 1: demonstrated losers
         for skill in self.store.list_skills():
-            if (
-                skill.invocations >= min_invocations_before_prune
-                and skill.score <= 0.2
-            ):
+            if skill.invocations >= min_invocations_before_prune and skill.score <= 0.2:
                 self.store.delete_skill(skill.id)
                 removed.append(skill.id)
 
         # rule 2: capacity
         while self.store.count_skills(scope=Scope.PROJECT) > self.max_skills:
             # fetch candidates cheapest first
-            pool = self.store.list_skills(
-                scope=Scope.PROJECT, maturity=Maturity.CANDIDATE
-            )
+            pool = self.store.list_skills(scope=Scope.PROJECT, maturity=Maturity.CANDIDATE)
             if not pool:
-                pool = self.store.list_skills(
-                    scope=Scope.PROJECT, maturity=Maturity.ESTABLISHED
-                )
+                pool = self.store.list_skills(scope=Scope.PROJECT, maturity=Maturity.ESTABLISHED)
             if not pool:
                 break
             pool.sort(key=lambda s: (s.score, s.invocations))

@@ -109,7 +109,11 @@ def test_skill_activated_session_defaults_to_success() -> None:
     with chain-of-Bash-success land in UNKNOWN."""
     traj = Trajectory(
         tool_calls=[
-            ToolCall(name="Bash", arguments={"command": "ls -lO"}, result="-rw-r--r-- 1 u s - 49 Apr .pth"),
+            ToolCall(
+                name="Bash",
+                arguments={"command": "ls -lO"},
+                result="-rw-r--r-- 1 u s - 49 Apr .pth",
+            ),
             ToolCall(name="Bash", arguments={"command": "chflags nohidden *.pth"}, result=""),
             ToolCall(
                 name="Bash",
