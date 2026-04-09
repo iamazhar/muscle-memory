@@ -152,29 +152,6 @@ Each Skill is three editable text fields:
 
 No DSL. No code templates. Plain English that the agent reads and executes with judgment.
 
-## Status
-
-**v0.2.0 — alpha, live on PyPI, install with `uv tool install muscle-memory`.**
-
-What works today:
-
-- Conservative LLM-driven extraction with a version-controlled prompt
-- Fast embedding-based retrieval (<500ms target, 2000-skill tests flat at ~3.5ms)
-- Visible 🧠 marker on match, silent on no-match + imperative execution framing
-- Extraction kick-off notification via Claude Code's hook response API
-- Heuristic outcome inference for sessions without explicit rewards
-- Darwinian skill scoring with maturity tiers (candidate → established → proven)
-- Dual-layer dedup: insertion gate + on-demand cluster consolidation
-- **Full Non-Parametric PPO refinement loop** — semantic gradient → LLM rewrite → PPO-Gate verification
-- 121 passing unit + integration + edge-case tests, 8 opt-in behavioral tests against real Claude Code
-
-Planned / open:
-
-- Persistent embedder daemon for sub-100ms seeded-store hook latency
-- Local Ollama backend for zero-API-cost extraction
-- Cross-model skill transfer and Q-value retrieval ranking (paper's open items)
-- Windows support (currently untested)
-
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) — full version history
