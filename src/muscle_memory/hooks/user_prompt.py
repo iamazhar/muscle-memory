@@ -191,10 +191,9 @@ def _format_context(hits: list[RetrievedSkill]) -> str:
         "",
         f"Where `<title>` is one of: {titles_list}",
         "",
-        "If NONE of the playbooks apply to the current task, instead start",
-        "with: `🧠 **muscle-memory**: no matching playbook, proceeding normally`",
-        "Then continue with the actual work. Do not explain muscle-memory,",
-        "do not discuss the playbook metadata — acknowledge, then act.",
+        "If NONE of the playbooks apply to the current task, do NOT emit any",
+        "muscle-memory marker. Just proceed normally with the user's request.",
+        "Do not explain muscle-memory or discuss the playbook metadata.",
         "",
     ]
     for i, (hit, title) in enumerate(zip(hits, titles), start=1):

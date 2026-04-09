@@ -63,7 +63,7 @@ Three strategies, in order of preference:
    Claude's reply is one text turn with no tool calls, the marker
    survives to `-p` stdout. `test_no_match_marker_survives_plain_p`
    exploits this — a "capital of France?" prompt produces a one-line
-   answer where `🧠 muscle-memory: no matching playbook` is at the top.
+   answer with no marker at all (silent no-match).
 
 ### What this does NOT affect
 
@@ -88,13 +88,12 @@ Claude:
 > ignore it and proceed normally.
 >
 > If NONE of the playbooks apply to the current task, instead start with:
-> `🧠 **muscle-memory**: no matching playbook, proceeding normally`
+> *(no marker emitted — Claude proceeds silently)*
 
 This composite approach was verified in the agent-driven tests: when a
 Kubernetes skill was the only skill in the store and the user asked
 "what is the capital of France?", Claude correctly emitted the
-"no matching playbook" marker instead of fabricating a connection to
-kubectl. Layered safety — permissive retriever + smart wrapper +
+no execution marker instead of fabricating a connection to kubectl. Layered safety — permissive retriever + smart wrapper +
 Claude's own judgment — works.
 
 If you want tighter retrieval, lower the distance cutoff in

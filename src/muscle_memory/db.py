@@ -347,6 +347,18 @@ class Store:
         finally:
             conn.close()
 
+    def count_skills_since(self, iso_timestamp: str) -> int:
+        """Count skills created after the given ISO-8601 timestamp."""
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM skills WHERE created_at > ?",
+                (iso_timestamp,),
+            ).fetchone()
+            return int(row["n"])
+        finally:
+            conn.close()
+
     def search_skills_by_embedding(
         self,
         embedding: list[float],

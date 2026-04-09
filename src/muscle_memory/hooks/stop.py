@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
         # wait — Claude Code's hook has to return quickly.
         _fire_async_extraction(episode.id, cfg.db_path)
 
+        # Notify via Claude Code's hook response JSON
+        response = {"stopReason": "🧠 muscle-memory: extracting skills from this session…"}
+        sys.stdout.write(json.dumps(response))
+        sys.stdout.flush()
+
         # v0.2: also fire a refinement sweep. It's a no-op unless
         # some skill meets the auto-refine criteria (failures ≥ 2,
         # score ≤ 0.6, invocations ≥ 5). Runs detached.

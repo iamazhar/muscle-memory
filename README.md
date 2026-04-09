@@ -42,7 +42,7 @@ When a skill fires, Claude's response is prefixed with a visible marker so you a
 🧠 muscle-memory: executing playbook — After uv sync on macOS…
 ```
 
-Then Claude **executes the playbook directly** — runs the commands, makes the edits, verifies the result — instead of narrating the steps back at you. If no skill matches the current task, you get `🧠 muscle-memory: no matching playbook, proceeding normally` instead.
+Then Claude **executes the playbook directly** — runs the commands, makes the edits, verifies the result — instead of narrating the steps back at you. If no skill matches, Claude proceeds silently with no marker.
 
 ## Quickstart
 

@@ -6,7 +6,7 @@ pre-seeded mm database and verifies observable outcomes:
   * Claude actually invokes tools (imperative execution) rather than
     narrating steps back at the user
   * bang-commands don't trigger skill retrieval
-  * unrelated prompts produce the "no matching playbook" marker
+  * unrelated prompts proceed silently (no 🧠 marker emitted)
 
 These are slow (each test spends a few seconds waiting on Claude Code)
 and cost real LLM tokens, so they're OPT-IN:
@@ -229,13 +229,13 @@ class TestMarkerVisibility:
         )
         assert result.returncode == 0
         out = result.stdout
-        # Single-turn text response keeps the marker in plain -p output.
-        # Either the marker is present AND says no-match, or it's absent
-        # entirely — never present AND wrongly claiming to execute.
+        # No skill should match "capital of France", so the 🧠 marker
+        # should NOT appear at all (silent no-match).  If it does appear,
+        # it must not wrongly claim to be executing an unrelated playbook.
         if "🧠" in out:
             lower = out.lower()
-            assert "no matching playbook" in lower or "proceeding normally" in lower, (
-                f"marker present but wrongly claims execution: {out[:300]}"
+            assert "executing playbook" not in lower, (
+                f"marker wrongly claims execution for unrelated prompt: {out[:300]}"
             )
         # Paris should be in the answer
         assert "paris" in out.lower()
@@ -357,11 +357,11 @@ class TestShellEscapeGate:
 
 
 class TestNoMatchHandling:
-    def test_unrelated_prompt_emits_no_match_marker(
+    def test_unrelated_prompt_has_no_execution_marker(
         self, scratch_project: Path
     ) -> None:
-        """When no skill matches, Claude should still emit the
-        visibility marker in 'no matching playbook' form."""
+        """When no skill matches, Claude should proceed silently —
+        no 🧠 marker emitted at all."""
         _seed_skill(
             scratch_project,
             {
@@ -378,16 +378,11 @@ class TestNoMatchHandling:
             "What is the capital of France?",
         )
         out = result.stdout
-        # Either Claude saw the no-match marker instruction and emitted it,
-        # OR Claude retrieved nothing and didn't emit the marker at all.
-        # Both are acceptable — the fail condition is if it WRONGLY claims
-        # to be executing an unrelated playbook.
+        # The fail condition is if Claude WRONGLY claims to be executing
+        # an unrelated playbook.  No marker at all is the ideal outcome.
         if "🧠" in out:
-            assert (
-                "no matching playbook" in out.lower()
-                or "proceeding normally" in out.lower()
-            ), (
-                f"marker present but should say 'no matching playbook': {out[:300]}"
+            assert "executing playbook" not in out.lower(), (
+                f"marker wrongly claims execution for unrelated prompt: {out[:300]}"
             )
 
 
