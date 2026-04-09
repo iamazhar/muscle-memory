@@ -160,7 +160,8 @@ What works today:
 
 - Conservative LLM-driven extraction with a version-controlled prompt
 - Fast embedding-based retrieval (<500ms target, 2000-skill tests flat at ~3.5ms)
-- Visible 🧠 marker + imperative execution framing
+- Visible 🧠 marker on match, silent on no-match + imperative execution framing
+- Extraction kick-off notification via Claude Code's hook response API
 - Heuristic outcome inference for sessions without explicit rewards
 - Darwinian skill scoring with maturity tiers (candidate → established → proven)
 - Dual-layer dedup: insertion gate + on-demand cluster consolidation
