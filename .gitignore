@@ -79,3 +79,4 @@ dmypy.json
 # Claude Code session state (don't commit personal sessions)
 .claude/projects/
 CLAUDE.md
+*.spec
