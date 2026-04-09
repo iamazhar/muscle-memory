@@ -30,11 +30,10 @@ from datetime import UTC, datetime
 from importlib import resources
 from typing import Any
 
-from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.extractor import _short, format_trajectory_for_extractor
+from muscle_memory.extractor import _short
 from muscle_memory.llm import LLM
-from muscle_memory.models import Episode, Outcome, Skill
+from muscle_memory.models import Episode, Skill
 
 
 class RefinementError(RuntimeError):
@@ -100,11 +99,7 @@ class RefinementResult:
 
 
 def _load_prompt(name: str) -> str:
-    return (
-        resources.files("muscle_memory.prompts")
-        .joinpath(name)
-        .read_text(encoding="utf-8")
-    )
+    return resources.files("muscle_memory.prompts").joinpath(name).read_text(encoding="utf-8")
 
 
 # ----------------------------------------------------------------------
@@ -137,7 +132,7 @@ def _format_skill_block(skill: Skill) -> str:
 
 def _format_episode_block(episode: Episode, *, index: int) -> str:
     lines = [
-        f"<episode index=\"{index}\" id=\"{episode.id[:8]}\" outcome=\"{episode.outcome.value}\">",
+        f'<episode index="{index}" id="{episode.id[:8]}" outcome="{episode.outcome.value}">',
         f"  <user_prompt>{_short(episode.user_prompt, 300)}</user_prompt>",
     ]
     if episode.reward != 0:
@@ -150,8 +145,7 @@ def _format_episode_block(episode: Episode, *, index: int) -> str:
         parts = [f"    [{i}] {tc.name}"]
         if tc.arguments:
             parts.append(
-                f"       args: "
-                + ", ".join(f"{k}={_short(v, 80)}" for k, v in tc.arguments.items())
+                "       args: " + ", ".join(f"{k}={_short(v, 80)}" for k, v in tc.arguments.items())
             )
         if tc.result:
             parts.append(f"       result: {_short(tc.result, 150)}")
@@ -402,9 +396,7 @@ def verify_refinement(
             verdict = judge_one_trajectory(original, revised, ep, llm)
         except RefinementError as exc:
             # keep going — judge errors are treated as neutral verdicts
-            verdicts.append(
-                JudgeVerdict(episode_id=ep.id, score=0, reason=f"judge failed: {exc}")
-            )
+            verdicts.append(JudgeVerdict(episode_id=ep.id, score=0, reason=f"judge failed: {exc}"))
             continue
         verdicts.append(verdict)
 

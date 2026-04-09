@@ -94,9 +94,7 @@ class Skill(BaseModel):
     id: str = Field(default_factory=_new_id)
 
     # the core ProcMEM tuple
-    activation: str = Field(
-        description="Natural-language description of when this Skill applies."
-    )
+    activation: str = Field(description="Natural-language description of when this Skill applies.")
     execution: str = Field(
         description="Ordered steps the agent should take while this Skill is active."
     )

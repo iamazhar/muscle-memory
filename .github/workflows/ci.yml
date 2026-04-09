@@ -28,10 +28,11 @@ jobs:
       - run: uv run mypy src/muscle_memory/
 
   test:
-    runs-on: ${{ matrix.os }}
+    # macOS CI runners lack --enable-loadable-sqlite-extensions,
+    # so sqlite-vec tests fail there. Tests run on macOS locally.
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4

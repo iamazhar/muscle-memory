@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from io import StringIO
 from pathlib import Path
-from typing import Iterable
 from unittest.mock import patch
 
 import pytest
@@ -23,12 +23,12 @@ from muscle_memory.db import Store
 from muscle_memory.dedup import add_skill_with_dedup
 from muscle_memory.hooks.install import install
 from muscle_memory.hooks.stop import parse_transcript
-from muscle_memory.hooks.user_prompt import _format_context, main as user_prompt_main
+from muscle_memory.hooks.user_prompt import _format_context
+from muscle_memory.hooks.user_prompt import main as user_prompt_main
 from muscle_memory.models import Episode, Maturity, Outcome, Scope, Skill, ToolCall, Trajectory
 from muscle_memory.outcomes import infer_outcome
-from muscle_memory.retriever import RetrievedSkill, Retriever
+from muscle_memory.retriever import RetrievedSkill
 from muscle_memory.scorer import Scorer
-
 
 # ----------------------------------------------------------------------
 # test fixtures and helpers
@@ -145,17 +145,13 @@ class TestInit:
                         "UserPromptSubmit": [
                             {
                                 "matcher": "",
-                                "hooks": [
-                                    {"type": "command", "command": "my-existing-hook"}
-                                ],
+                                "hooks": [{"type": "command", "command": "my-existing-hook"}],
                             }
                         ],
                         "PostToolUse": [
                             {
                                 "matcher": "Bash",
-                                "hooks": [
-                                    {"type": "command", "command": "some-other-hook"}
-                                ],
+                                "hooks": [{"type": "command", "command": "some-other-hook"}],
                             }
                         ],
                     }
@@ -197,9 +193,7 @@ class TestInit:
 
 
 class TestUserPromptHook:
-    def _run_hook_with_stdin(
-        self, payload: dict, db_path: Path
-    ) -> tuple[int, str]:
+    def _run_hook_with_stdin(self, payload: dict, db_path: Path) -> tuple[int, str]:
         """Invoke the user_prompt main() directly with a stdin payload."""
         stdin = StringIO(json.dumps(payload))
         stdout = StringIO()
@@ -215,9 +209,7 @@ class TestUserPromptHook:
                 os.environ["MM_DB_PATH"] = env_backup
         return rc, stdout.getvalue()
 
-    def test_matching_prompt_injects_playbook(
-        self, seeded_store: Store, project_dir: Path
-    ) -> None:
+    def test_matching_prompt_injects_playbook(self, seeded_store: Store, project_dir: Path) -> None:
         # monkey-patch make_embedder to return our deterministic one
         with patch(
             "muscle_memory.hooks.user_prompt.make_embedder",
@@ -239,9 +231,7 @@ class TestUserPromptHook:
         if "<muscle_memory>" in out:
             assert "muscle-memory" in out.lower()
 
-    def test_shell_escape_prompt_is_ignored(
-        self, seeded_store: Store, project_dir: Path
-    ) -> None:
+    def test_shell_escape_prompt_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         """Bang commands / bare shell commands should not trigger retrieval."""
         with patch(
             "muscle_memory.hooks.user_prompt.make_embedder",
@@ -258,9 +248,7 @@ class TestUserPromptHook:
         assert rc == 0
         assert out == ""  # no injection at all
 
-    def test_bang_prefix_is_ignored(
-        self, seeded_store: Store, project_dir: Path
-    ) -> None:
+    def test_bang_prefix_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         with patch(
             "muscle_memory.hooks.user_prompt.make_embedder",
             return_value=DeterministicEmbedder(),
@@ -276,9 +264,7 @@ class TestUserPromptHook:
         assert rc == 0
         assert out == ""
 
-    def test_slash_command_is_ignored(
-        self, seeded_store: Store, project_dir: Path
-    ) -> None:
+    def test_slash_command_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         with patch(
             "muscle_memory.hooks.user_prompt.make_embedder",
             return_value=DeterministicEmbedder(),
@@ -294,9 +280,7 @@ class TestUserPromptHook:
         assert rc == 0
         assert out == ""
 
-    def test_empty_prompt_is_ignored(
-        self, seeded_store: Store, project_dir: Path
-    ) -> None:
+    def test_empty_prompt_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         rc, out = self._run_hook_with_stdin(
             {"session_id": "x", "cwd": str(project_dir), "prompt": "   "},
             seeded_store.db_path,
@@ -304,9 +288,7 @@ class TestUserPromptHook:
         assert rc == 0
         assert out == ""
 
-    def test_malformed_json_stdin_does_not_crash(
-        self, seeded_store: Store
-    ) -> None:
+    def test_malformed_json_stdin_does_not_crash(self, seeded_store: Store) -> None:
         """Hook must return 0 (silent no-op) on bad input, never crash."""
         stdin = StringIO("this is not json at all { broken")
         stdout = StringIO()
@@ -358,16 +340,18 @@ class TestUserPromptHook:
 
 
 class TestScoringLoop:
-    def test_skill_activated_success_bumps_score(
-        self, seeded_store: Store
-    ) -> None:
+    def test_skill_activated_success_bumps_score(self, seeded_store: Store) -> None:
         skill = seeded_store.list_skills()[0]
         before_score = skill.score
 
         # Simulate a successful execution trajectory
         trajectory = Trajectory(
             tool_calls=[
-                ToolCall(name="Bash", arguments={"command": "ls -lO"}, result="-rw-r--r-- 1 u s hidden pth"),
+                ToolCall(
+                    name="Bash",
+                    arguments={"command": "ls -lO"},
+                    result="-rw-r--r-- 1 u s hidden pth",
+                ),
                 ToolCall(name="Bash", arguments={"command": "chflags nohidden"}, result=""),
                 ToolCall(
                     name="Bash",
@@ -397,9 +381,7 @@ class TestScoringLoop:
         # invocations=0 so score defaults to 0
         # in practice, mark_activated sets invocations before credit
 
-    def test_skill_activated_failure_bumps_failure_count(
-        self, seeded_store: Store
-    ) -> None:
+    def test_skill_activated_failure_bumps_failure_count(self, seeded_store: Store) -> None:
         skill = seeded_store.list_skills()[0]
         skill.invocations = 1  # simulate mark_activated
         seeded_store.update_skill(skill)
@@ -425,9 +407,7 @@ class TestScoringLoop:
         assert reloaded is not None
         assert reloaded.failures == 1
 
-    def test_maturity_promotion_requires_3_successes(
-        self, tmp_db: Store
-    ) -> None:
+    def test_maturity_promotion_requires_3_successes(self, tmp_db: Store) -> None:
         skill = Skill(
             activation="candidate skill under test for maturity",
             execution="do it",
@@ -486,7 +466,6 @@ class TestDedupAtInsertion:
         merged — guards against over-aggressive dedup on the fake
         bigram embedder whose discrimination is limited.
         """
-        from muscle_memory.dedup import find_duplicate
 
         distinct_activations = [
             "When pytest fails with ImportError in python",
@@ -512,9 +491,7 @@ class TestDedupAtInsertion:
 
 
 class TestTranscriptParsing:
-    def test_parse_transcript_handles_tool_calls_and_results(
-        self, tmp_path: Path
-    ) -> None:
+    def test_parse_transcript_handles_tool_calls_and_results(self, tmp_path: Path) -> None:
         path = tmp_path / "sess.jsonl"
         path.write_text(
             "\n".join(
@@ -579,9 +556,7 @@ class TestTranscriptParsing:
                     json.dumps(
                         {
                             "type": "assistant",
-                            "message": {
-                                "content": [{"type": "text", "text": "hello"}]
-                            },
+                            "message": {"content": [{"type": "text", "text": "hello"}]},
                         }
                     ),
                 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from muscle_memory.config import Config
 from muscle_memory.db import Store
@@ -63,9 +63,7 @@ def test_retriever_skips_empty_query(tmp_db: Store, sample_config: Config) -> No
     assert retriever.retrieve("   ") == []
 
 
-def test_mark_activated_updates_invocations(
-    tmp_db: Store, sample_config: Config
-) -> None:
+def test_mark_activated_updates_invocations(tmp_db: Store, sample_config: Config) -> None:
     embedder = FakeEmbedder()
     s = Skill(activation="pytest tests fail", execution="e", termination="t")
     tmp_db.add_skill(s, embedding=embedder.embed_one(s.activation))

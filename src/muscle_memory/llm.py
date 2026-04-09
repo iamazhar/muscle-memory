@@ -36,8 +36,7 @@ class LLM(Protocol):
         *,
         max_tokens: int = 2048,
         temperature: float = 0.2,
-    ) -> str:
-        ...
+    ) -> str: ...
 
 
 class AnthropicLLM:
@@ -51,9 +50,7 @@ class AnthropicLLM:
         try:
             from anthropic import Anthropic  # noqa: F401
         except ImportError as exc:
-            raise RuntimeError(
-                "anthropic not installed. Run: uv add anthropic"
-            ) from exc
+            raise RuntimeError("anthropic not installed. Run: uv add anthropic") from exc
         self.model = model
         self._api_key = api_key
         self._client: object | None = None
@@ -241,10 +238,9 @@ class OpenAILLM:
         assert self._client is not None
 
         wrapped_system = (
-            system
-            + "\n\nReturn a JSON object with a single key \"skills\" whose "
-              "value is the JSON array described above. "
-              "Example: {\"skills\": [ ... ]}"
+            system + '\n\nReturn a JSON object with a single key "skills" whose '
+            "value is the JSON array described above. "
+            'Example: {"skills": [ ... ]}'
         )
 
         resp = self._client.chat.completions.create(  # type: ignore[attr-defined]

@@ -94,11 +94,17 @@ select = [
     "SIM", # flake8-simplify
 ]
 ignore = [
-    "E501",  # line too long (let formatter handle)
+    "E501",   # line too long (let formatter handle)
+    "UP042",  # StrEnum requires 3.11+, str+Enum is fine
+    "SIM102", # nested ifs are sometimes clearer
+    "SIM103", # explicit if/return is sometimes clearer
+    "SIM105", # try/except/pass is fine for best-effort blocks
+    "B905",   # zip() strict= not needed for same-length iterables
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["B011"]
+"tests/**/*.py" = ["B011", "F841"]
+"src/muscle_memory/cli.py" = ["B008"]  # typer.Option() in defaults is the standard pattern
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -114,3 +120,7 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["sqlite_vec", "openai", "voyageai"]
+ignore_missing_imports = true

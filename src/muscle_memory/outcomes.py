@@ -160,10 +160,7 @@ def infer_outcome(
             and last_text.strip()
         ):
             score += 1.5
-            reasons.append(
-                "skill-activated session ended without tail errors "
-                "(implicit success)"
-            )
+            reasons.append("skill-activated session ended without tail errors (implicit success)")
 
     # 4. Unrecovered tail errors (2+ of the last 3 calls errored).
     # Skip this penalty if the final tool call was a clear success —
@@ -205,10 +202,23 @@ def _is_test_or_build(tc: ToolCall) -> bool:
     if tc.name.lower() not in {"bash", "shell", "run"}:
         return False
     cmd = str(tc.arguments.get("command", "")).lower()
-    for token in ("pytest", "npm test", "npm run build", "cargo test",
-                  "cargo build", "go test", "mvn test", "gradle test",
-                  "yarn test", "yarn build", "make test", "make build",
-                  "jest", "vitest", "tox"):
+    for token in (
+        "pytest",
+        "npm test",
+        "npm run build",
+        "cargo test",
+        "cargo build",
+        "go test",
+        "mvn test",
+        "gradle test",
+        "yarn test",
+        "yarn build",
+        "make test",
+        "make build",
+        "jest",
+        "vitest",
+        "tox",
+    ):
         if token in cmd:
             return True
     return False

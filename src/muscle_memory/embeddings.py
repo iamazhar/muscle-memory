@@ -9,7 +9,11 @@ To swap providers set MM_EMBEDDER=openai or MM_EMBEDDER=voyage
 
 from __future__ import annotations
 
-from typing import Iterable, Protocol, runtime_checkable
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
 from muscle_memory.config import Config
 
@@ -20,11 +24,9 @@ class Embedder(Protocol):
 
     dims: int
 
-    def embed(self, texts: Iterable[str]) -> list[list[float]]:
-        ...
+    def embed(self, texts: Iterable[str]) -> list[list[float]]: ...
 
-    def embed_one(self, text: str) -> list[float]:
-        ...
+    def embed_one(self, text: str) -> list[float]: ...
 
 
 class FastEmbedEmbedder:
@@ -37,7 +39,7 @@ class FastEmbedEmbedder:
     def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", dims: int = 384):
         self.model_name = model_name
         self.dims = dims
-        self._model = None  # type: ignore[assignment]
+        self._model: TextEmbedding | None = None
 
     def _load(self) -> None:
         if self._model is None:
@@ -124,9 +126,7 @@ def make_embedder(config: Config) -> Embedder:
     """Resolve the configured embedder."""
     provider = config.embedder.lower()
     if provider == "fastembed":
-        return FastEmbedEmbedder(
-            model_name=config.embedding_model, dims=config.embedding_dims
-        )
+        return FastEmbedEmbedder(model_name=config.embedding_model, dims=config.embedding_dims)
     if provider == "openai":
         dims = config.embedding_dims if config.embedding_dims != 384 else 1536
         return OpenAIEmbedder(model=config.embedding_model, dims=dims)

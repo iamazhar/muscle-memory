@@ -206,7 +206,8 @@ def _load_activations(cfg: Config, session_id: str) -> list[str]:
     if not sidecar.exists():
         return []
     try:
-        return json.loads(sidecar.read_text())
+        result: list[str] = json.loads(sidecar.read_text())
+        return result
     except Exception:
         return []
 

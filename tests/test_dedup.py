@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from muscle_memory.db import Store
 from muscle_memory.dedup import (
-    DEDUP_DISTANCE_THRESHOLD,
     add_skill_with_dedup,
     consolidate_group,
-    find_duplicate,
     find_near_duplicate_groups,
 )
 from muscle_memory.models import Maturity, Skill
@@ -51,9 +49,7 @@ def _make_skill(activation: str, **kw) -> Skill:
 
 
 def test_add_skill_with_dedup_inserts_when_empty(tmp_db: Store) -> None:
-    embedder = FakeEmbedder(
-        {"new skill": [0.1, 0.2, 0.3, 0.4]}
-    )
+    embedder = FakeEmbedder({"new skill": [0.1, 0.2, 0.3, 0.4]})
     skill = _make_skill("new skill")
     added, existing = add_skill_with_dedup(tmp_db, embedder, skill)
     assert added is True
@@ -87,12 +83,8 @@ def test_add_skill_with_dedup_allows_distant_skill(tmp_db: Store) -> None:
             "distant skill": [0.0, 1.0, 0.0, 0.0],
         }
     )
-    tmp_db.add_skill(
-        _make_skill("old skill"), embedding=embedder.embed_one("old skill")
-    )
-    added, _existing = add_skill_with_dedup(
-        tmp_db, embedder, _make_skill("distant skill")
-    )
+    tmp_db.add_skill(_make_skill("old skill"), embedding=embedder.embed_one("old skill"))
+    added, _existing = add_skill_with_dedup(tmp_db, embedder, _make_skill("distant skill"))
     assert added is True
     assert tmp_db.count_skills() == 2
 
