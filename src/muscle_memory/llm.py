@@ -220,7 +220,6 @@ class ClaudeCodeLLM:
             [
                 self._claude_path,
                 "-p",
-                user,
                 "--bare",
                 "--system-prompt",
                 system,
@@ -231,13 +230,14 @@ class ClaudeCodeLLM:
                 "--model",
                 self.model,
             ],
+            input=user,
             capture_output=True,
             text=True,
             timeout=120,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"claude -p failed (exit {result.returncode}): {result.stderr[:200]}"
+                f"claude -p failed (exit {result.returncode}): {result.stderr[:500]}"
             )
 
         # Parse the JSON output to extract the result text
