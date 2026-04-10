@@ -562,6 +562,7 @@ def _row_to_episode(row: sqlite3.Row) -> Episode:
     traj_data = json.loads(row["trajectory"])
     trajectory = Trajectory(
         user_prompt=traj_data.get("user_prompt", ""),
+        user_followup=traj_data.get("user_followup", ""),
         tool_calls=[ToolCall(**tc) for tc in traj_data.get("tool_calls", [])],
         assistant_turns=traj_data.get("assistant_turns", []),
     )

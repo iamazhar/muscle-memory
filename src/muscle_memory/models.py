@@ -70,6 +70,7 @@ class Trajectory(BaseModel):
     """
 
     user_prompt: str = ""
+    user_followup: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     assistant_turns: list[str] = Field(default_factory=list)
 

@@ -58,6 +58,25 @@ def _format_maturity(m: Maturity) -> str:
     return f"[{colors[m]}]{m.value}[/{colors[m]}]"
 
 
+def _format_score(score: float) -> str:
+    if score >= 0.7:
+        return f"[green]{score:.2f}[/green]"
+    if score >= 0.4:
+        return f"[yellow]{score:.2f}[/yellow]"
+    if score == 0.0:
+        return f"[dim]{score:.2f}[/dim]"
+    return f"[red]{score:.2f}[/red]"
+
+
+def _format_outcome(outcome: Outcome) -> str:
+    colors = {
+        Outcome.SUCCESS: "green",
+        Outcome.FAILURE: "red",
+        Outcome.UNKNOWN: "dim",
+    }
+    return f"[{colors[outcome]}]{outcome.value}[/{colors[outcome]}]"
+
+
 def _short_id(s: str, n: int = 8) -> str:
     return s[:n]
 
@@ -189,9 +208,9 @@ def list_skills(
         table.add_row(
             _short_id(s.id),
             _format_maturity(s.maturity),
-            f"{s.score:.2f}",
+            _format_score(s.score),
             f"{s.successes}/{s.invocations}",
-            s.activation[:80] + ("…" if len(s.activation) > 80 else ""),
+            s.activation,
         )
     console.print(table)
 
@@ -210,7 +229,7 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
                 f"[bold]execution[/bold]\n{skill.execution}\n\n"
                 f"[bold]termination[/bold]\n{skill.termination}\n\n"
                 f"[dim]maturity:[/dim] {_format_maturity(skill.maturity)}   "
-                f"[dim]score:[/dim] {skill.score:.2f}   "
+                f"[dim]score:[/dim] {_format_score(skill.score)}   "
                 f"[dim]uses:[/dim] {skill.successes}/{skill.invocations}\n"
                 f"[dim]tags:[/dim] {', '.join(skill.tags) or '—'}\n"
                 f"[dim]tool hints:[/dim] {', '.join(skill.tool_hints) or '—'}"
@@ -218,6 +237,62 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
             title=f"skill {_short_id(skill.id)}",
         )
     )
+
+
+@app.command()
+def log(
+    outcome: Outcome | None = typer.Option(None, "--outcome", "-o", help="Filter by outcome."),
+    limit: int = typer.Option(20, "--limit", "-n"),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Show recent episodes with outcomes."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    # Over-fetch when filtering so we get enough matching results.
+    fetch_limit = limit * 5 if outcome is not None else limit
+    episodes = store.list_episodes(limit=fetch_limit)
+
+    if outcome is not None:
+        episodes = [ep for ep in episodes if ep.outcome == outcome][:limit]
+
+    if as_json:
+        data = []
+        for ep in episodes:
+            data.append({
+                "id": _short_id(ep.id),
+                "session_id": ep.session_id or "",
+                "prompt": ep.user_prompt[:80],
+                "outcome": ep.outcome.value,
+                "reward": ep.reward,
+                "tool_calls": ep.trajectory.num_tool_calls(),
+                "skills_activated": len(ep.activated_skills),
+                "started_at": ep.started_at.isoformat() if ep.started_at else None,
+            })
+        typer.echo(json.dumps(data, indent=2))
+        return
+
+    if not episodes:
+        console.print("[dim]No episodes recorded yet.[/dim]")
+        return
+
+    table = Table(title=f"recent episodes ({len(episodes)})")
+    table.add_column("time", width=10)
+    table.add_column("prompt")
+    table.add_column("outcome", width=10)
+    table.add_column("reward", justify="right", width=7)
+    table.add_column("tools", justify="right", width=6)
+    table.add_column("skills", justify="right", width=6)
+
+    for ep in episodes:
+        table.add_row(
+            _relative_time(ep.started_at) if ep.started_at else "—",
+            ep.user_prompt[:60] + ("…" if len(ep.user_prompt) > 60 else ""),
+            _format_outcome(ep.outcome),
+            f"{ep.reward:+.1f}",
+            str(ep.trajectory.num_tool_calls()),
+            str(len(ep.activated_skills)),
+        )
+    console.print(table)
 
 
 @app.command()
@@ -612,6 +687,7 @@ def rescore() -> None:
     for ep in episodes:
         signal = infer_outcome(
             ep.trajectory,
+            user_followup=ep.trajectory.user_followup,
             any_skills_activated=bool(ep.activated_skills),
         )
         ep.outcome = signal.outcome

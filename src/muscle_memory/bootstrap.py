@@ -115,7 +115,7 @@ def bootstrap(
         # Bootstrap has no activation sidecars — it's processing historical
         # sessions from before muscle-memory was installed. Falls back to
         # keyword-only heuristic.
-        signal = infer_outcome(trajectory)
+        signal = infer_outcome(trajectory, user_followup=trajectory.user_followup)
 
         episode = Episode(
             session_id=path.stem,

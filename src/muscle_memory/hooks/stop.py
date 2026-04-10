@@ -59,7 +59,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         activated = _load_activations(cfg, session_id)
-        signal = infer_outcome(trajectory, any_skills_activated=bool(activated))
+        signal = infer_outcome(
+            trajectory,
+            user_followup=trajectory.user_followup,
+            any_skills_activated=bool(activated),
+        )
 
         episode = Episode(
             session_id=session_id,
@@ -116,6 +120,7 @@ def _any_skill_needs_refinement(store: Store) -> bool:
 def parse_transcript(path: Path) -> Trajectory:
     """Parse a Claude Code session JSONL into a Trajectory."""
     user_prompt = ""
+    user_followups: list[str] = []
     tool_calls: list[ToolCall] = []
     assistant_turns: list[str] = []
     # index tool uses by id so we can attach results
@@ -139,6 +144,8 @@ def parse_transcript(path: Path) -> Trajectory:
                 if isinstance(content, str):
                     if not user_prompt:
                         user_prompt = content
+                    else:
+                        user_followups.append(content)
                 elif isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict):
@@ -153,8 +160,12 @@ def parse_transcript(path: Path) -> Trajectory:
                                         tc.error = result_text
                                     else:
                                         tc.result = result_text
-                            elif block.get("type") == "text" and not user_prompt:
-                                user_prompt = block.get("text", "")
+                            elif block.get("type") == "text":
+                                text = block.get("text", "")
+                                if not user_prompt:
+                                    user_prompt = text
+                                else:
+                                    user_followups.append(text)
 
             elif rec_type == "assistant":
                 content = msg.get("content")
@@ -177,6 +188,7 @@ def parse_transcript(path: Path) -> Trajectory:
 
     return Trajectory(
         user_prompt=user_prompt,
+        user_followup=" ".join(user_followups),
         tool_calls=tool_calls,
         assistant_turns=assistant_turns,
     )
