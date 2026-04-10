@@ -62,9 +62,16 @@ def _short_id(s: str, n: int = 8) -> str:
     return s[:n]
 
 
+def _ensure_utc(dt: datetime) -> datetime:
+    """Coerce a datetime to UTC. Naive datetimes are assumed to be UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _relative_time(dt: datetime) -> str:
     """Format a datetime as a human-readable relative time string."""
-    delta = datetime.now(UTC) - dt
+    delta = datetime.now(UTC) - _ensure_utc(dt)
     if delta.days > 30:
         months = delta.days // 30
         return f"{months}mo ago"
@@ -222,6 +229,7 @@ def stats(
     store = _open_store(cfg)
     skills = store.list_skills()
     episodes = store.list_episodes(limit=1000)
+    episodes_total = store.count_episodes()
 
     now = datetime.now(UTC)
     paused = (cfg.db_path.parent / "mm.paused").exists()
@@ -245,7 +253,7 @@ def stats(
 
     # Learning metrics
     cutoff_7d = now - timedelta(days=7)
-    new_7d = sum(1 for s in skills if s.created_at >= cutoff_7d)
+    new_7d = sum(1 for s in skills if _ensure_utc(s.created_at) >= cutoff_7d)
     last_learned_at = max((s.created_at for s in skills), default=None)
     refined_skills = [s for s in skills if s.refinement_count > 0]
     total_refinements = sum(s.refinement_count for s in refined_skills)
@@ -259,7 +267,9 @@ def stats(
     stale = [
         s
         for s in skills
-        if s.invocations > 0 and s.last_used_at is not None and s.last_used_at < cutoff_30d
+        if s.invocations > 0
+        and s.last_used_at is not None
+        and _ensure_utc(s.last_used_at) < cutoff_30d
     ]
     unknown_count = sum(1 for ep in episodes if ep.outcome is Outcome.UNKNOWN)
     unknown_rate = (unknown_count / len(episodes)) if episodes else 0.0
@@ -279,7 +289,7 @@ def stats(
             "scope": cfg.scope.value,
             "pool_used": len(skills),
             "pool_max": cfg.max_skills,
-            "episodes_total": len(episodes),
+            "episodes_total": episodes_total,
             "episodes_with_skills": len(eps_with_skills),
             "episodes_with_skills_pct": (len(eps_with_skills) / len(episodes) if episodes else 0.0),
             "reuse_rate": reuse_rate,

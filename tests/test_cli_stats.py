@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from muscle_memory.cli import _relative_time, app
+from muscle_memory.cli import _ensure_utc, _relative_time, app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.models import Episode, Maturity, Outcome, Scope, Skill, Trajectory
@@ -95,6 +95,23 @@ class TestRelativeTime:
     def test_months(self) -> None:
         dt = datetime.now(UTC) - timedelta(days=65)
         assert _relative_time(dt) == "2mo ago"
+
+    def test_naive_datetime(self) -> None:
+        """Naive datetimes (from mm import) should not crash."""
+        naive = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=3)
+        assert _relative_time(naive) == "3d ago"
+
+
+class TestEnsureUtc:
+    def test_naive_gets_utc(self) -> None:
+        naive = datetime(2025, 1, 1, 12, 0, 0)
+        result = _ensure_utc(naive)
+        assert result.tzinfo is UTC
+
+    def test_aware_unchanged(self) -> None:
+        aware = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        result = _ensure_utc(aware)
+        assert result is aware
 
 
 class TestStatsEmpty:
@@ -358,6 +375,35 @@ class TestStatsAttention:
             result = runner.invoke(app, ["stats"])
 
         assert "stale" in result.output
+
+
+class TestStatsNaiveDatetimes:
+    """Skills imported via mm import may have naive (offset-unaware) timestamps."""
+
+    def test_naive_created_at_does_not_crash(self, store_dir: Path) -> None:
+        cfg = _make_config(store_dir)
+        store = Store(cfg.db_path)
+
+        # Simulate a skill with naive datetime (as mm import can produce)
+        naive_skill = _make_skill(
+            activation="When doing something",
+            invocations=3,
+            successes=2,
+            score=0.67,
+            created_at=datetime(2025, 6, 15, 10, 0, 0),  # no tzinfo
+            last_used_at=datetime(2025, 6, 20, 10, 0, 0),  # no tzinfo
+        )
+        store.add_skill(naive_skill)
+        store.add_episode(_make_episode(outcome=Outcome.SUCCESS))
+
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
+        ):
+            result = runner.invoke(app, ["stats"])
+
+        assert result.exit_code == 0
+        assert "Learning" in result.output
 
 
 class TestStatsPaused:
