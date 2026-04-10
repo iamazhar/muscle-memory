@@ -396,14 +396,14 @@ def stats(
         top_table.add_column("score", justify="right")
         top_table.add_column("uses", justify="right")
         top_table.add_column("maturity", width=12)
-        top_table.add_column("activation")
+        top_table.add_column("activation", no_wrap=True)
         for s in top_skills:
             top_table.add_row(
                 _short_id(s.id),
                 f"{s.score:.2f}",
                 f"{s.successes}/{s.invocations}",
                 _format_maturity(s.maturity),
-                s.activation[:60] + ("…" if len(s.activation) > 60 else ""),
+                s.activation[:40] + ("…" if len(s.activation) > 40 else ""),
             )
         console.print(top_table)
 
@@ -415,14 +415,14 @@ def stats(
         str_table.add_column("score", justify="right")
         str_table.add_column("uses", justify="right")
         str_table.add_column("maturity", width=12)
-        str_table.add_column("activation")
+        str_table.add_column("activation", no_wrap=True)
         for s in struggling:
             str_table.add_row(
                 _short_id(s.id),
                 f"{s.score:.2f}",
                 f"{s.successes}/{s.invocations}",
                 _format_maturity(s.maturity),
-                s.activation[:60] + ("…" if len(s.activation) > 60 else ""),
+                s.activation[:40] + ("…" if len(s.activation) > 40 else ""),
             )
         console.print(str_table)
 
