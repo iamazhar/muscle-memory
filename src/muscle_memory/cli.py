@@ -77,7 +77,9 @@ def pause() -> None:
     cfg = _load_config()
     flag = cfg.db_path.parent / "mm.paused"
     flag.touch()
-    console.print("[yellow]muscle-memory paused.[/yellow] No retrieval or extraction until `mm resume`.")
+    console.print(
+        "[yellow]muscle-memory paused.[/yellow] No retrieval or extraction until `mm resume`."
+    )
 
 
 @app.command()

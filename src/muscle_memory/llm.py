@@ -42,7 +42,6 @@ class LLM(Protocol):
     ) -> str: ...
 
 
-
 def _extract_json(text: str) -> Any:
     """Strip code fences, find first JSON value, parse it.
 
@@ -237,7 +236,9 @@ class ClaudeCodeLLM:
             timeout=120,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"claude -p failed (exit {result.returncode}): {result.stderr[:200]}")
+            raise RuntimeError(
+                f"claude -p failed (exit {result.returncode}): {result.stderr[:200]}"
+            )
 
         # Parse the JSON output to extract the result text
         try:
