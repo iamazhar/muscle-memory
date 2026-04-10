@@ -1,8 +1,8 @@
 """Trajectory → candidate Skills.
 
-Given a completed Episode, ask the LLM to extract zero or a few
-reusable procedural skills. The prompt is intentionally conservative:
-most episodes should yield zero skills.
+Given a completed Episode, ask the LLM to extract reusable procedural
+skills. The prompt extracts liberally; pruning and PPO refinement
+manage quality over time.
 """
 
 from __future__ import annotations
