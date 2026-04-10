@@ -214,27 +214,30 @@ class ClaudeCodeLLM:
         if self._claude_path is None:
             raise RuntimeError(
                 "claude CLI not found on PATH. "
-                "Install Claude Code or use MM_LLM_PROVIDER=anthropic with an API key."
+                "Install Claude Code or use MM_LLM_PROVIDER=openai with an OpenAI API key."
             )
-        result = subprocess.run(
-            [
-                self._claude_path,
-                "-p",
-                "--bare",
-                "--system-prompt",
-                system,
-                "--output-format",
-                "json",
-                "--max-turns",
-                "1",
-                "--model",
-                self.model,
-            ],
-            input=user,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    self._claude_path,
+                    "-p",
+                    "--bare",
+                    "--system-prompt",
+                    system,
+                    "--output-format",
+                    "json",
+                    "--max-turns",
+                    "1",
+                    "--model",
+                    self.model,
+                ],
+                input=user,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("claude -p timed out after 120s") from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"claude -p failed (exit {result.returncode}): {result.stderr[:500]}"
@@ -246,10 +249,15 @@ class ClaudeCodeLLM:
             if isinstance(events, list):
                 for event in reversed(events):
                     if isinstance(event, dict) and event.get("type") == "result":
-                        return str(event.get("result", ""))
-            return result.stdout
-        except json.JSONDecodeError:
-            return result.stdout
+                        text = event.get("result")
+                        if text is None or text == "":
+                            raise RuntimeError("claude -p returned empty result")
+                        return str(text)
+            raise RuntimeError("claude -p output missing result event")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"claude -p returned non-JSON output: {result.stdout[:200]}"
+            ) from exc
 
     def complete_text(
         self,

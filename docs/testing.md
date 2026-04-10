@@ -128,7 +128,7 @@ Five scenarios are available:
 1. **Marker visibility** — the 🧠 marker appears when a skill matches
 2. **Imperative execution** — Claude invokes Bash rather than narrating
 3. **Bang-command gate** — `!foo`, `/bar`, bare shell commands skip injection
-4. **No-match handling** — unrelated queries emit the "no matching" marker
+4. **No-match handling** — unrelated queries proceed silently (no marker)
 5. **Fresh install lifecycle** — init → seed → execute → score, end-to-end
 
 Each scenario is self-contained in `test_behavioral.py` and can be

@@ -87,7 +87,7 @@ def resume() -> None:
     """Resume muscle-memory after a pause."""
     cfg = _load_config()
     flag = cfg.db_path.parent / "mm.paused"
-    if flag.exists():
+    if flag.is_file():
         flag.unlink()
         console.print("[green]muscle-memory resumed.[/green]")
     else:

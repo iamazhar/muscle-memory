@@ -81,24 +81,11 @@ mm prune                   # delete demonstrably bad skills
 
 ## Authentication
 
-`muscle-memory` needs an LLM for skill extraction (runs after each session,
-not on every prompt). **It cannot reuse your Claude Code subscription auth**
-— that's a known limitation; Anthropic does not currently expose a
-subscription-capable SDK for third-party tools.
+No API key needed. Extraction shells out to `claude -p`, so it uses your
+existing Claude Code subscription auth. Just be logged into Claude Code.
 
-Your options:
-
-| Provider | Setup | Cost per session (measured) |
-|---|---|---|
-| **Anthropic** (default) | `export ANTHROPIC_API_KEY=sk-ant-...` — **needs API credits, not a Max/Pro subscription** | **~$0.009** (Sonnet 4.6, extraction only; refinement is +$0.030 when it fires) |
-| **OpenAI** | `uv tool install 'muscle-memory[openai]'` then `export OPENAI_API_KEY=sk-...` and `export MM_LLM_PROVIDER=openai` | lower but unmeasured — `gpt-4o-mini` default |
-| **Local / Ollama** | *(planned, not yet implemented)* | free |
-
-At 20 sessions per day, Anthropic's default comes out to ~$5.50/month for a heavy user. See [`docs/performance.md`](docs/performance.md) for the full measurement methodology.
-
-If you already use Claude Code via a Max/Pro subscription, you'll still
-need a separate Anthropic API key with billing credits, or use OpenAI.
-See [docs/authentication.md](docs/authentication.md) for details.
+For OpenAI as an alternative backend: `export MM_LLM_PROVIDER=openai`
+and `export OPENAI_API_KEY=sk-...`.
 
 ## How it works
 
@@ -108,7 +95,7 @@ See [docs/authentication.md](docs/authentication.md) for details.
 │  user prompt ──────►  ┌───────────────┐      ┌─────────────────────┐       │
 │                       │  Retriever    │─────►│  inject playbook    │       │
 │                       │  (fastembed + │      │  with 🧠 marker +   │       │
-│                       │   sqlite-vec) │      │  imperative framing │       │
+│                       │   sqlite)     │      │  imperative framing │       │
 │                       └───────────────┘      └─────────┬───────────┘       │
 │                                                         │                   │
 │                                                         ▼                   │
@@ -128,14 +115,14 @@ See [docs/authentication.md](docs/authentication.md) for details.
 │         └───┬────────────────┴────────────────────────┘                    │
 │             ▼                                                              │
 │     ┌───────────────────┐       ┌─────────────────────────────┐           │
-│     │  Extractor        │       │     SQLite + sqlite-vec     │           │
+│     │  Extractor        │       │     SQLite                  │           │
 │     │  (async, on new   │──────►│     (.claude/mm.db)         │           │
 │     │   trajectories)   │       └─────────────────────────────┘           │
 │     └───────────────────┘                                                  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Inspired directly by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869). The full three-stage refinement loop — semantic gradient → LLM rewrite → PPO-Gate trust-region verification — is adapted for Anthropic's API (which doesn't expose token logprobs, so the PPO Gate uses an LLM-judge proxy over stored trajectories). See the [CHANGELOG](CHANGELOG.md) for the full story.
+Inspired directly by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869). The full three-stage refinement loop (semantic gradient, LLM rewrite, PPO-Gate trust-region verification) uses an LLM-judge proxy over stored trajectories. See the [CHANGELOG](CHANGELOG.md) for the full story.
 
 ## Skill anatomy
 

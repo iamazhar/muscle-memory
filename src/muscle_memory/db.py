@@ -396,10 +396,15 @@ class Store:
             if not rows:
                 return []
 
-            # Brute-force L2 distance
+            # Brute-force L2 distance (skip corrupted embeddings)
             distances: list[tuple[str, float]] = []
             for row in rows:
-                stored = json.loads(row["embedding"])
+                try:
+                    stored = json.loads(row["embedding"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if len(stored) != self.embedding_dims:
+                    continue
                 distances.append((row["skill_id"], _l2_distance(embedding, stored)))
 
             distances.sort(key=lambda t: t[1])
