@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 
 from muscle_memory import __version__
@@ -58,6 +60,23 @@ def _format_maturity(m: Maturity) -> str:
 
 def _short_id(s: str, n: int = 8) -> str:
     return s[:n]
+
+
+def _relative_time(dt: datetime) -> str:
+    """Format a datetime as a human-readable relative time string."""
+    delta = datetime.now(UTC) - dt
+    if delta.days > 30:
+        months = delta.days // 30
+        return f"{months}mo ago"
+    if delta.days > 0:
+        return f"{delta.days}d ago"
+    hours = delta.seconds // 3600
+    if hours > 0:
+        return f"{hours}h ago"
+    minutes = delta.seconds // 60
+    if minutes > 0:
+        return f"{minutes}m ago"
+    return "just now"
 
 
 # ----------------------------------------------------------------------
@@ -195,46 +214,217 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
 
 
 @app.command()
-def stats() -> None:
-    """Summarize the skill store."""
+def stats(
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Summarize the skill store with actionable metrics."""
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills()
     episodes = store.list_episodes(limit=1000)
 
-    by_maturity: dict[Maturity, int] = {}
-    for m in Maturity:
-        by_maturity[m] = 0
+    now = datetime.now(UTC)
+    paused = (cfg.db_path.parent / "mm.paused").exists()
+
+    # -- Compute all metrics up-front --
+
+    # Maturity breakdown
+    by_maturity: dict[Maturity, int] = {m: 0 for m in Maturity}
     for s in skills:
         by_maturity[s.maturity] += 1
 
+    # Reuse rate
     total_invocations = sum(s.invocations for s in skills)
     total_successes = sum(s.successes for s in skills)
     reuse_rate = (total_successes / total_invocations) if total_invocations else 0.0
 
-    by_outcome: dict[Outcome, int] = {o: 0 for o in Outcome}
-    for ep in episodes:
-        by_outcome[ep.outcome] += 1
+    # Episodes with skills + avg reward
+    eps_with_skills = [ep for ep in episodes if ep.activated_skills]
+    rewards = [ep.reward for ep in eps_with_skills]
+    avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
 
-    paused = (cfg.db_path.parent / "mm.paused").exists()
+    # Learning metrics
+    cutoff_7d = now - timedelta(days=7)
+    new_7d = sum(1 for s in skills if s.created_at >= cutoff_7d)
+    last_learned_at = max((s.created_at for s in skills), default=None)
+    refined_skills = [s for s in skills if s.refinement_count > 0]
+    total_refinements = sum(s.refinement_count for s in refined_skills)
+
+    # Attention metrics
+    from muscle_memory.refine import should_auto_refine
+
+    need_refine = [s for s in skills if should_auto_refine(s)]
+    at_risk = [s for s in skills if s.invocations >= 5 and s.score <= 0.2]
+    cutoff_30d = now - timedelta(days=30)
+    stale = [
+        s
+        for s in skills
+        if s.invocations > 0 and s.last_used_at is not None and s.last_used_at < cutoff_30d
+    ]
+    unknown_count = sum(1 for ep in episodes if ep.outcome is Outcome.UNKNOWN)
+    unknown_rate = (unknown_count / len(episodes)) if episodes else 0.0
+
+    # Top and struggling skills
+    top_skills = [s for s in skills if s.invocations >= 2][:3]
+    struggling = sorted(
+        [s for s in skills if s.invocations >= 3 and s.score < 0.5],
+        key=lambda s: s.score,
+    )[:3]
+
+    # -- JSON output --
+    if as_json:
+        data = {
+            "database": str(cfg.db_path),
+            "status": "paused" if paused else "active",
+            "scope": cfg.scope.value,
+            "pool_used": len(skills),
+            "pool_max": cfg.max_skills,
+            "episodes_total": len(episodes),
+            "episodes_with_skills": len(eps_with_skills),
+            "episodes_with_skills_pct": (
+                len(eps_with_skills) / len(episodes) if episodes else 0.0
+            ),
+            "reuse_rate": reuse_rate,
+            "avg_reward": avg_reward,
+            "maturity": {m.value: by_maturity[m] for m in Maturity},
+            "new_7d": new_7d,
+            "last_learned_at": last_learned_at.isoformat() if last_learned_at else None,
+            "refined_skills": len(refined_skills),
+            "total_refinements": total_refinements,
+            "attention": {
+                "need_refine": len(need_refine),
+                "at_risk": len(at_risk),
+                "stale": len(stale),
+                "unknown_rate": unknown_rate,
+            },
+            "top_skills": [_skill_to_dict(s) for s in top_skills],
+            "struggling_skills": [_skill_to_dict(s) for s in struggling],
+        }
+        typer.echo(json.dumps(data, indent=2))
+        return
+
+    # -- Rich output --
+
+    # Section 1: Header
     status_line = "[yellow]PAUSED[/yellow]" if paused else "[green]active[/green]"
-
-    panel_text = (
-        f"[bold]database[/bold] {cfg.db_path}\n"
-        f"[bold]project root[/bold] {cfg.project_root or '(global)'}\n"
-        f"[bold]status[/bold] {status_line}\n\n"
-        f"[bold]skills[/bold] {len(skills)}"
-        f"  (candidate: {by_maturity[Maturity.CANDIDATE]},"
-        f"  established: {by_maturity[Maturity.ESTABLISHED]},"
-        f"  proven: {by_maturity[Maturity.PROVEN]})\n"
-        f"[bold]invocations[/bold] {total_invocations}"
-        f"  [bold]reuse rate[/bold] {reuse_rate:.1%}\n\n"
-        f"[bold]episodes[/bold] {len(episodes)}"
-        f"  (success: {by_outcome[Outcome.SUCCESS]},"
-        f"  failure: {by_outcome[Outcome.FAILURE]},"
-        f"  unknown: {by_outcome[Outcome.UNKNOWN]})"
+    header = (
+        f"[bold]database[/bold]  {cfg.db_path}\n"
+        f"[bold]status[/bold]    {status_line}"
+        f"   [bold]scope[/bold] {cfg.scope.value}"
+        f"   [bold]pool[/bold] {len(skills)}/{cfg.max_skills}"
     )
-    console.print(Panel(panel_text, title="muscle-memory stats"))
+    console.print(Panel(header, title="muscle-memory"))
+
+    # Empty store shortcut
+    if not skills and not episodes:
+        console.print(
+            "\n[dim]No skills yet. Run [bold]mm bootstrap[/bold]"
+            " to seed from session history.[/dim]"
+        )
+        return
+
+    # Section 2: Value
+    console.print(Rule("Value"))
+    eps_note = " (last 1000)" if len(episodes) == 1000 else ""
+    with_pct = (
+        f"{len(eps_with_skills) / len(episodes):.1%}" if episodes else "0.0%"
+    )
+    console.print(
+        f"  [bold]episodes[/bold]       {len(episodes)}{eps_note}"
+        f"       [bold]with skills[/bold]   {len(eps_with_skills)} ({with_pct})"
+    )
+    if total_invocations:
+        console.print(
+            f"  [bold]reuse rate[/bold]     {reuse_rate:.1%}"
+            f"        [bold]avg reward[/bold]    {avg_reward:+.2f}"
+        )
+
+    # Section 3: Learning
+    console.print(Rule("Learning"))
+    maturity_line = (
+        f"{by_maturity[Maturity.PROVEN]} proven"
+        f" · {by_maturity[Maturity.ESTABLISHED]} established"
+        f" · {by_maturity[Maturity.CANDIDATE]} candidate"
+    )
+    console.print(f"  [bold]maturity[/bold]       {maturity_line}")
+    last_learned_str = _relative_time(last_learned_at) if last_learned_at else "never"
+    console.print(
+        f"  [bold]new (7d)[/bold]       {new_7d} skills"
+        f"      [bold]last learned[/bold]  {last_learned_str}"
+    )
+    if refined_skills:
+        console.print(
+            f"  [bold]refined[/bold]        {len(refined_skills)} skills"
+            f" ({total_refinements} total refinements)"
+        )
+
+    # Section 4: Attention
+    console.print(Rule("Attention"))
+    attention_items = 0
+    if need_refine:
+        console.print(
+            f"  [yellow]need refine[/yellow]    {len(need_refine)} skills"
+            "  (≥5 uses, score ≤0.6, ≥2 failures)"
+        )
+        attention_items += 1
+    if at_risk:
+        console.print(
+            f"  [red]at risk[/red]        {len(at_risk)} skills"
+            "  (≥5 uses, score ≤0.2 — will be pruned)"
+        )
+        attention_items += 1
+    if stale:
+        console.print(
+            f"  [yellow]stale[/yellow]          {len(stale)} skills"
+            "  (invoked but unused >30d)"
+        )
+        attention_items += 1
+    if unknown_rate > 0.4 and episodes:
+        console.print(
+            f"  [yellow]unknown rate[/yellow]   {unknown_rate:.1%}"
+            f"  ({unknown_count}/{len(episodes)} episodes)"
+        )
+        attention_items += 1
+    if attention_items == 0:
+        console.print("  [green]No issues detected.[/green]")
+
+    # Section 5: Top skills
+    if top_skills:
+        console.print(Rule("Top Skills"))
+        top_table = Table(box=None, show_header=True, padding=(0, 1))
+        top_table.add_column("id", style="dim", width=10)
+        top_table.add_column("score", justify="right")
+        top_table.add_column("uses", justify="right")
+        top_table.add_column("maturity", width=12)
+        top_table.add_column("activation")
+        for s in top_skills:
+            top_table.add_row(
+                _short_id(s.id),
+                f"{s.score:.2f}",
+                f"{s.successes}/{s.invocations}",
+                _format_maturity(s.maturity),
+                s.activation[:60] + ("…" if len(s.activation) > 60 else ""),
+            )
+        console.print(top_table)
+
+    # Section 6: Struggling skills
+    if struggling:
+        console.print(Rule("Struggling Skills"))
+        str_table = Table(box=None, show_header=True, padding=(0, 1))
+        str_table.add_column("id", style="dim", width=10)
+        str_table.add_column("score", justify="right")
+        str_table.add_column("uses", justify="right")
+        str_table.add_column("maturity", width=12)
+        str_table.add_column("activation")
+        for s in struggling:
+            str_table.add_row(
+                _short_id(s.id),
+                f"{s.score:.2f}",
+                f"{s.successes}/{s.invocations}",
+                _format_maturity(s.maturity),
+                s.activation[:60] + ("…" if len(s.activation) > 60 else ""),
+            )
+        console.print(str_table)
 
 
 @app.command()
