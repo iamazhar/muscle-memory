@@ -281,9 +281,7 @@ def stats(
             "pool_max": cfg.max_skills,
             "episodes_total": len(episodes),
             "episodes_with_skills": len(eps_with_skills),
-            "episodes_with_skills_pct": (
-                len(eps_with_skills) / len(episodes) if episodes else 0.0
-            ),
+            "episodes_with_skills_pct": (len(eps_with_skills) / len(episodes) if episodes else 0.0),
             "reuse_rate": reuse_rate,
             "avg_reward": avg_reward,
             "maturity": {m.value: by_maturity[m] for m in Maturity},
@@ -326,9 +324,7 @@ def stats(
     # Section 2: Value
     console.print(Rule("Value"))
     eps_note = " (last 1000)" if len(episodes) == 1000 else ""
-    with_pct = (
-        f"{len(eps_with_skills) / len(episodes):.1%}" if episodes else "0.0%"
-    )
+    with_pct = f"{len(eps_with_skills) / len(episodes):.1%}" if episodes else "0.0%"
     console.print(
         f"  [bold]episodes[/bold]       {len(episodes)}{eps_note}"
         f"       [bold]with skills[/bold]   {len(eps_with_skills)} ({with_pct})"
@@ -375,8 +371,7 @@ def stats(
         attention_items += 1
     if stale:
         console.print(
-            f"  [yellow]stale[/yellow]          {len(stale)} skills"
-            "  (invoked but unused >30d)"
+            f"  [yellow]stale[/yellow]          {len(stale)} skills  (invoked but unused >30d)"
         )
         attention_items += 1
     if unknown_rate > 0.4 and episodes:

@@ -104,8 +104,9 @@ class TestStatsEmpty:
         cfg = _make_config(store_dir)
         store = Store(cfg.db_path)
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -117,8 +118,9 @@ class TestStatsEmpty:
         cfg = _make_config(store_dir)
         store = Store(cfg.db_path)
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats", "--json"])
 
@@ -200,19 +202,16 @@ class TestStatsPopulated:
                 )
             )
         for _ in range(2):
-            store.add_episode(
-                _make_episode(outcome=Outcome.UNKNOWN, reward=0.0)
-            )
+            store.add_episode(_make_episode(outcome=Outcome.UNKNOWN, reward=0.0))
 
         return cfg, store
 
-    def test_rich_output_sections(
-        self, populated_store: tuple[Config, Store]
-    ) -> None:
+    def test_rich_output_sections(self, populated_store: tuple[Config, Store]) -> None:
         cfg, store = populated_store
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -242,13 +241,12 @@ class TestStatsPopulated:
         # Top Skills section
         assert "Top Skills" in output
 
-    def test_json_output(
-        self, populated_store: tuple[Config, Store]
-    ) -> None:
+    def test_json_output(self, populated_store: tuple[Config, Store]) -> None:
         cfg, store = populated_store
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats", "--json"])
 
@@ -271,13 +269,12 @@ class TestStatsPopulated:
         assert "top_skills" in data
         assert "struggling_skills" in data
 
-    def test_struggling_skills_shown(
-        self, populated_store: tuple[Config, Store]
-    ) -> None:
+    def test_struggling_skills_shown(self, populated_store: tuple[Config, Store]) -> None:
         cfg, store = populated_store
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -306,12 +303,11 @@ class TestStatsAttention:
 
         # All success episodes
         for _ in range(5):
-            store.add_episode(
-                _make_episode(outcome=Outcome.SUCCESS, activated_skills=[skill.id])
-            )
+            store.add_episode(_make_episode(outcome=Outcome.SUCCESS, activated_skills=[skill.id]))
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -332,8 +328,9 @@ class TestStatsAttention:
         store.add_skill(bad_skill)
         store.add_episode(_make_episode(outcome=Outcome.SUCCESS))
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -354,8 +351,9 @@ class TestStatsAttention:
         store.add_skill(stale_skill)
         store.add_episode(_make_episode(outcome=Outcome.SUCCESS))
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -373,8 +371,9 @@ class TestStatsPaused:
         # Create the pause flag
         (store_dir / ".claude" / "mm.paused").touch()
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats"])
 
@@ -388,8 +387,9 @@ class TestStatsPaused:
 
         (store_dir / ".claude" / "mm.paused").touch()
 
-        with patch("muscle_memory.cli._load_config", return_value=cfg), patch(
-            "muscle_memory.cli._open_store", return_value=store
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
         ):
             result = runner.invoke(app, ["stats", "--json"])
 
