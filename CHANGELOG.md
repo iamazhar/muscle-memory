@@ -5,6 +5,30 @@ All notable changes to `muscle-memory` will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-04-09
+
+### Added
+
+- Standalone binary distribution via PyInstaller (macOS arm64/x86_64, Linux x86_64)
+- Homebrew tap: `brew tap iamazhar/tap && brew install muscle-memory`
+- CI/CD: GitHub Actions for lint, typecheck, test (Python 3.11-3.13), and PyPI publishing
+- Dependabot for automated dependency updates
+- Extraction kick-off notification via Claude Code's `stopReason` hook response
+
+### Changed
+
+- Silent no-match: no 🧠 marker emitted when no skill matches (was noisy)
+- Applied ruff format across all source files
+- Fixed mypy strict mode errors
+
+### Security
+
+- Branch protection with required PR reviews
+- Secret scanning and push protection enabled
+- Dependabot security updates enabled
+
+---
+
 ## [0.2.0] — 2026-04-08
 
 ### Added — Non-Parametric PPO refinement loop
@@ -268,5 +292,6 @@ to install with `uv tool install muscle-memory`.
   so multi-turn executions drop the marker from stdout. Interactive
   Claude Code users see it every time. Documented in `docs/testing.md`.
 
+[0.2.1]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.0
 [0.1.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.1.0
