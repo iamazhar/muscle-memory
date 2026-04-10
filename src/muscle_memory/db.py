@@ -1,4 +1,4 @@
-"""SQLite + sqlite-vec storage for Skills and Episodes.
+"""SQLite storage for Skills and Episodes.
 
 This module is the only place that knows about SQL. Everything
 else in muscle-memory talks to the `Store` DAO.
@@ -7,14 +7,13 @@ else in muscle-memory talks to the `Store` DAO.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import sqlite_vec
 
 from muscle_memory.models import (
     Episode,
@@ -26,7 +25,12 @@ from muscle_memory.models import (
     Trajectory,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+
+def _l2_distance(a: list[float], b: list[float]) -> float:
+    """Euclidean (L2) distance between two vectors."""
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -60,9 +64,6 @@ class Store:
 
     def _open(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
@@ -138,10 +139,10 @@ class Store:
             )
 
             conn.execute(
-                f"""
-                CREATE VIRTUAL TABLE IF NOT EXISTS skill_vec USING vec0(
-                    skill_id TEXT PRIMARY KEY,
-                    activation_embedding FLOAT[{self.embedding_dims}]
+                """
+                CREATE TABLE IF NOT EXISTS skill_embeddings (
+                    skill_id TEXT PRIMARY KEY REFERENCES skills(id) ON DELETE CASCADE,
+                    embedding TEXT NOT NULL
                 )
                 """
             )
@@ -172,13 +173,30 @@ class Store:
             row["name"] for row in conn.execute("PRAGMA table_info(skills)").fetchall()
         }
 
-        # v0.2 — refinement state columns on skills
+        # v2 — refinement state columns on skills
         if "refinement_count" not in existing_cols:
             conn.execute(
                 "ALTER TABLE skills ADD COLUMN refinement_count INTEGER NOT NULL DEFAULT 0"
             )
         if "previous_text" not in existing_cols:
             conn.execute("ALTER TABLE skills ADD COLUMN previous_text TEXT")
+
+        # v3 — replace sqlite-vec virtual table with plain embeddings table
+        if current_version < 3:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS skill_embeddings (
+                    skill_id TEXT PRIMARY KEY REFERENCES skills(id) ON DELETE CASCADE,
+                    embedding TEXT NOT NULL
+                )
+                """
+            )
+            # Drop the old sqlite-vec virtual table if present
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='skill_vec'"
+            ).fetchone()
+            if row is not None:
+                conn.execute("DROP TABLE skill_vec")
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
@@ -229,8 +247,8 @@ class Store:
         if embedding is not None:
             self._ensure_embedding_dim(embedding)
             conn.execute(
-                "INSERT INTO skill_vec (skill_id, activation_embedding) VALUES (?, ?)",
-                (skill.id, sqlite_vec.serialize_float32(embedding)),
+                "INSERT INTO skill_embeddings (skill_id, embedding) VALUES (?, ?)",
+                (skill.id, json.dumps(embedding)),
             )
 
     def _ensure_embedding_dim(self, embedding: list[float]) -> None:
@@ -286,10 +304,9 @@ class Store:
             )
             if embedding is not None:
                 self._ensure_embedding_dim(embedding)
-                conn.execute("DELETE FROM skill_vec WHERE skill_id = ?", (skill.id,))
                 conn.execute(
-                    "INSERT INTO skill_vec (skill_id, activation_embedding) VALUES (?, ?)",
-                    (skill.id, sqlite_vec.serialize_float32(embedding)),
+                    "INSERT OR REPLACE INTO skill_embeddings (skill_id, embedding) VALUES (?, ?)",
+                    (skill.id, json.dumps(embedding)),
                 )
 
     def get_skill(self, skill_id: str) -> Skill | None:
@@ -303,7 +320,7 @@ class Store:
     def delete_skill(self, skill_id: str) -> None:
         with self.batch() as conn:
             conn.execute("DELETE FROM skills WHERE id = ?", (skill_id,))
-            conn.execute("DELETE FROM skill_vec WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_embeddings WHERE skill_id = ?", (skill_id,))
 
     def list_skills(
         self,
@@ -367,29 +384,28 @@ class Store:
         """KNN search over activation embeddings.
 
         Returns a list of (Skill, distance) tuples ordered by ascending
-        distance (closer = more similar).
+        distance (closer = more similar). Uses brute-force L2 distance.
         """
         self._ensure_embedding_dim(embedding)
 
         conn = self._open()
         try:
-            # vec0 KNN query
-            rows = conn.execute(
-                """
-                SELECT skill_id, distance
-                FROM skill_vec
-                WHERE activation_embedding MATCH ?
-                  AND k = ?
-                ORDER BY distance
-                """,
-                (sqlite_vec.serialize_float32(embedding), top_k * 4),
-            ).fetchall()
+            rows = conn.execute("SELECT skill_id, embedding FROM skill_embeddings").fetchall()
 
             if not rows:
                 return []
 
-            # load full Skills for the hits, filter by scope if requested
-            by_id = {r["skill_id"]: float(r["distance"]) for r in rows}
+            # Brute-force L2 distance
+            distances: list[tuple[str, float]] = []
+            for row in rows:
+                stored = json.loads(row["embedding"])
+                distances.append((row["skill_id"], _l2_distance(embedding, stored)))
+
+            distances.sort(key=lambda t: t[1])
+            candidates = distances[: top_k * 4]
+
+            # Load full Skills for the hits, filter by scope if requested
+            by_id = {sid: dist for sid, dist in candidates}
             placeholders = ",".join("?" * len(by_id))
             sql = f"SELECT * FROM skills WHERE id IN ({placeholders})"
             params: list[Any] = list(by_id.keys())
