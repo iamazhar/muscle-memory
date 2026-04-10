@@ -482,6 +482,15 @@ class Store:
         finally:
             conn.close()
 
+    def count_episodes(self) -> int:
+        """Return the total number of episodes in the store."""
+        conn = self._open()
+        try:
+            row = conn.execute("SELECT COUNT(*) AS n FROM episodes").fetchone()
+            return int(row["n"])
+        finally:
+            conn.close()
+
     def find_episodes_for_skill(self, skill_id: str, *, limit: int = 10) -> list[Episode]:
         """Return the most recent episodes where this skill was activated.
 
