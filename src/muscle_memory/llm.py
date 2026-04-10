@@ -1,12 +1,15 @@
-"""Pluggable LLM backends for extraction and rerank.
+"""Pluggable LLM backends for extraction and refinement.
 
-Default is Anthropic Claude Haiku 4.5 — cheap, fast, and good enough
-for structured skill extraction from trajectories.
+Default is claude-code, which shells out to `claude -p` and uses
+the user's existing Claude Code subscription auth. Zero additional
+API keys or billing needed.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from typing import Any, Protocol, runtime_checkable
 
 from muscle_memory.config import Config
@@ -38,71 +41,6 @@ class LLM(Protocol):
         temperature: float = 0.2,
     ) -> str: ...
 
-
-class AnthropicLLM:
-    """Anthropic Claude client for structured extraction tasks."""
-
-    def __init__(
-        self,
-        model: str = "claude-haiku-4-5-20251001",
-        api_key: str | None = None,
-    ):
-        try:
-            from anthropic import Anthropic  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError("anthropic not installed. Run: uv add anthropic") from exc
-        self.model = model
-        self._api_key = api_key
-        self._client: object | None = None
-
-    def _load(self) -> None:
-        if self._client is None:
-            from anthropic import Anthropic
-
-            kwargs: dict[str, Any] = {}
-            if self._api_key:
-                kwargs["api_key"] = self._api_key
-            self._client = Anthropic(**kwargs)
-
-    def complete_text(
-        self,
-        system: str,
-        user: str,
-        *,
-        max_tokens: int = 2048,
-        temperature: float = 0.2,
-    ) -> str:
-        self._load()
-        assert self._client is not None
-        resp = self._client.messages.create(  # type: ignore[attr-defined]
-            model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        parts: list[str] = []
-        for block in resp.content:
-            if getattr(block, "type", None) == "text":
-                parts.append(block.text)
-        return "".join(parts)
-
-    def complete_json(
-        self,
-        system: str,
-        user: str,
-        *,
-        max_tokens: int = 2048,
-        temperature: float = 0.2,
-    ) -> Any:
-        """Ask for JSON, parse it, be forgiving about code fences."""
-        text = self.complete_text(
-            system + "\n\nRespond with ONLY valid JSON. No prose, no code fences.",
-            user,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return _extract_json(text)
 
 
 def _extract_json(text: str) -> Any:
@@ -261,12 +199,88 @@ class OpenAILLM:
         return data
 
 
+class ClaudeCodeLLM:
+    """LLM backend that shells out to `claude -p`.
+
+    Uses the user's existing Claude Code subscription auth, so no
+    API key or billing credits are needed. Runs in --bare mode to
+    skip hooks, LSP, and other overhead.
+    """
+
+    def __init__(self, model: str = "claude-sonnet-4-6"):
+        self.model = model
+        self._claude_path: str | None = shutil.which("claude")
+
+    def _run(self, system: str, user: str, *, max_tokens: int = 2048) -> str:
+        if self._claude_path is None:
+            raise RuntimeError(
+                "claude CLI not found on PATH. "
+                "Install Claude Code or use MM_LLM_PROVIDER=anthropic with an API key."
+            )
+        result = subprocess.run(
+            [
+                self._claude_path,
+                "-p",
+                user,
+                "--bare",
+                "--system-prompt",
+                system,
+                "--output-format",
+                "json",
+                "--max-turns",
+                "1",
+                "--model",
+                self.model,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"claude -p failed (exit {result.returncode}): {result.stderr[:200]}")
+
+        # Parse the JSON output to extract the result text
+        try:
+            events = json.loads(result.stdout)
+            if isinstance(events, list):
+                for event in reversed(events):
+                    if isinstance(event, dict) and event.get("type") == "result":
+                        return str(event.get("result", ""))
+            return result.stdout
+        except json.JSONDecodeError:
+            return result.stdout
+
+    def complete_text(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> str:
+        return self._run(system, user, max_tokens=max_tokens)
+
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> Any:
+        text = self._run(
+            system + "\n\nRespond with ONLY valid JSON. No prose, no code fences.",
+            user,
+            max_tokens=max_tokens,
+        )
+        return _extract_json(text)
+
+
 def make_llm(config: Config) -> LLM:
     provider = config.llm_provider.lower()
-    if provider == "anthropic":
-        return AnthropicLLM(model=config.llm_model, api_key=config.llm_api_key)
+    if provider == "claude-code":
+        return ClaudeCodeLLM(model=config.llm_model)
     if provider == "openai":
-        # sensible default when user sets provider but not model
         model = config.llm_model
         if model.startswith("claude"):
             model = "gpt-4o-mini"

@@ -32,7 +32,6 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.6",
-    "anthropic>=0.40",
     "fastembed>=0.4",
     "platformdirs>=4.2",
 ]
