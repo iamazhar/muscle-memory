@@ -29,6 +29,9 @@ app = typer.Typer(
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
 app.add_typer(hook_app, name="hook")
 
+eval_app = typer.Typer(help="Evaluate outcome detection, retrieval, and skill impact.")
+app.add_typer(eval_app, name="eval")
+
 
 # ----------------------------------------------------------------------
 # helpers
@@ -949,6 +952,130 @@ def hook_stop() -> None:
     from muscle_memory.hooks.stop import main as stop_main
 
     raise typer.Exit(stop_main())
+
+
+# ----------------------------------------------------------------------
+# eval subcommands
+# ----------------------------------------------------------------------
+
+
+@eval_app.command("label")
+def eval_label(
+    outcome: bool = typer.Option(True, "--outcome/--retrieval", help="Label type."),
+    limit: int = typer.Option(10, "--limit", "-n"),
+) -> None:
+    """Interactively label episodes with ground-truth outcomes."""
+    if not outcome:
+        console.print("[dim]Retrieval labeling not yet implemented.[/dim]")
+        return
+    from muscle_memory.eval.labeler import label_outcomes_interactive
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    label_outcomes_interactive(store, limit=limit)
+
+
+@eval_app.command("outcomes")
+def eval_outcomes(
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Evaluate outcome detection accuracy against human labels."""
+    from muscle_memory.eval.evaluator import evaluate_outcomes, render_outcome_eval
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    result = evaluate_outcomes(store)
+
+    if as_json:
+        import json as _json
+
+        data = {
+            "total": result.total,
+            "agreement": result.agreement,
+            "agreement_rate": result.agreement_rate,
+            "matrix": result.matrix,
+            "precision_success": result.precision("success"),
+            "recall_success": result.recall("success"),
+            "precision_failure": result.precision("failure"),
+            "recall_failure": result.recall("failure"),
+            "disagreements": result.disagreements,
+        }
+        typer.echo(_json.dumps(data, indent=2))
+        return
+
+    render_outcome_eval(result)
+
+
+@eval_app.command("impact")
+def eval_impact(
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Compare skill-activated vs. non-activated episode outcomes."""
+    from muscle_memory.eval.evaluator import evaluate_impact, render_impact_eval
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    result = evaluate_impact(store)
+
+    if as_json:
+        import json as _json
+
+        data = {
+            "with_skills": {
+                "count": result.with_skills.count,
+                "success_rate": result.with_skills.success_rate,
+                "failure_rate": result.with_skills.failure_rate,
+                "avg_reward": result.with_skills.avg_reward,
+                "avg_tool_calls": result.with_skills.avg_tool_calls,
+                "avg_error_rate": result.with_skills.avg_error_rate,
+            },
+            "without_skills": {
+                "count": result.without_skills.count,
+                "success_rate": result.without_skills.success_rate,
+                "failure_rate": result.without_skills.failure_rate,
+                "avg_reward": result.without_skills.avg_reward,
+                "avg_tool_calls": result.without_skills.avg_tool_calls,
+                "avg_error_rate": result.without_skills.avg_error_rate,
+            },
+            "per_skill": [
+                {
+                    "skill_id": s.skill_id,
+                    "activation": s.activation,
+                    "success_rate": s.success_rate,
+                    "successes": s.successes,
+                    "episodes": s.episodes,
+                }
+                for s in result.per_skill
+            ],
+        }
+        typer.echo(_json.dumps(data, indent=2))
+        return
+
+    render_impact_eval(result)
+
+
+@eval_app.command("report")
+def eval_report() -> None:
+    """Run all evaluators and print a combined report."""
+    from muscle_memory.eval.evaluator import (
+        evaluate_impact,
+        evaluate_outcomes,
+        render_impact_eval,
+        render_outcome_eval,
+    )
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+
+    # Outcomes
+    outcome_result = evaluate_outcomes(store)
+    render_outcome_eval(outcome_result)
+
+    console.print()
+
+    # Impact
+    impact_result = evaluate_impact(store)
+    render_impact_eval(impact_result)
 
 
 # ----------------------------------------------------------------------

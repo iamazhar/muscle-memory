@@ -25,7 +25,7 @@ from muscle_memory.models import (
     Trajectory,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _l2_distance(a: list[float], b: list[float]) -> float:
@@ -135,6 +135,24 @@ class Store:
 
                 CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
                 CREATE INDEX IF NOT EXISTS idx_episodes_started ON episodes(started_at DESC);
+
+                CREATE TABLE IF NOT EXISTS eval_labels (
+                    id TEXT PRIMARY KEY,
+                    label_type TEXT NOT NULL,
+                    episode_id TEXT,
+                    heuristic_outcome TEXT,
+                    human_outcome TEXT,
+                    confidence TEXT DEFAULT 'high',
+                    notes TEXT DEFAULT '',
+                    query_text TEXT,
+                    skill_id TEXT,
+                    relevance TEXT,
+                    rank_position INTEGER,
+                    labeled_at TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_labels_unique
+                    ON eval_labels(label_type, episode_id);
                 """
             )
 
@@ -198,6 +216,31 @@ class Store:
                 conn.execute("DROP TABLE IF EXISTS skill_vec")
             except Exception:
                 pass  # vec0 module not available, table is orphaned but harmless
+
+        # v4 — eval labels table
+        if current_version < 4:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS eval_labels (
+                    id TEXT PRIMARY KEY,
+                    label_type TEXT NOT NULL,
+                    episode_id TEXT,
+                    heuristic_outcome TEXT,
+                    human_outcome TEXT,
+                    confidence TEXT DEFAULT 'high',
+                    notes TEXT DEFAULT '',
+                    query_text TEXT,
+                    skill_id TEXT,
+                    relevance TEXT,
+                    rank_position INTEGER,
+                    labeled_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_labels_unique "
+                "ON eval_labels(label_type, episode_id)"
+            )
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
@@ -516,6 +559,87 @@ class Store:
         finally:
             conn.close()
 
+    # ------------------------------------------------------------------
+    # eval labels
+    # ------------------------------------------------------------------
+
+    def add_eval_label(self, label: EvalLabel) -> None:
+        conn = self._open()
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO eval_labels
+                   (id, label_type, episode_id, heuristic_outcome, human_outcome,
+                    confidence, notes, query_text, skill_id, relevance,
+                    rank_position, labeled_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    label.id,
+                    label.label_type,
+                    label.episode_id,
+                    label.heuristic_outcome,
+                    label.human_outcome,
+                    label.confidence,
+                    label.notes,
+                    label.query_text,
+                    label.skill_id,
+                    label.relevance,
+                    label.rank_position,
+                    label.labeled_at.isoformat(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_eval_labels(self, label_type: str, *, limit: int = 500) -> list[EvalLabel]:
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM eval_labels WHERE label_type = ? ORDER BY labeled_at DESC LIMIT ?",
+                (label_type, limit),
+            ).fetchall()
+            return [_row_to_eval_label(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_outcome_label(self, episode_id: str) -> EvalLabel | None:
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT * FROM eval_labels WHERE label_type = 'outcome' AND episode_id = ?",
+                (episode_id,),
+            ).fetchone()
+            return _row_to_eval_label(row) if row else None
+        finally:
+            conn.close()
+
+    def count_eval_labels(self, label_type: str) -> int:
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM eval_labels WHERE label_type = ?",
+                (label_type,),
+            ).fetchone()
+            return int(row["n"])
+        finally:
+            conn.close()
+
+    def list_unlabeled_episodes(self, *, limit: int = 50) -> list[Episode]:
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                """SELECT e.* FROM episodes e
+                   LEFT JOIN eval_labels el
+                     ON el.label_type = 'outcome' AND el.episode_id = e.id
+                   WHERE el.id IS NULL
+                   ORDER BY e.started_at DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [_row_to_episode(r) for r in rows]
+        finally:
+            conn.close()
+
 
 # ----------------------------------------------------------------------
 # row -> model hydration helpers
@@ -577,4 +701,23 @@ def _row_to_episode(row: sqlite3.Row) -> Episode:
         ended_at=_parse_iso(row["ended_at"]),
         project_path=row["project_path"],
         activated_skills=json.loads(row["activated_skills"]),
+    )
+
+
+def _row_to_eval_label(row: sqlite3.Row) -> EvalLabel:
+    from muscle_memory.eval import EvalLabel as _EvalLabel
+
+    return _EvalLabel(
+        id=row["id"],
+        label_type=row["label_type"],
+        episode_id=row["episode_id"] or "",
+        heuristic_outcome=row["heuristic_outcome"] or "",
+        human_outcome=row["human_outcome"] or "",
+        confidence=row["confidence"] or "high",
+        notes=row["notes"] or "",
+        query_text=row["query_text"] or "",
+        skill_id=row["skill_id"] or "",
+        relevance=row["relevance"] or "",
+        rank_position=row["rank_position"] or 0,
+        labeled_at=_parse_iso(row["labeled_at"]) or datetime.now(),  # type: ignore[arg-type]
     )
