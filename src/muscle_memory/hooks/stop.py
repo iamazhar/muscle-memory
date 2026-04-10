@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg = Config.load(start_dir=Path(cwd) if cwd else None)
         if not cfg.db_path.exists():
             return 0
+        if (cfg.db_path.parent / "mm.paused").exists():
+            return 0
 
         trajectory = parse_transcript(transcript_path)
         if not trajectory.tool_calls and not trajectory.assistant_turns:

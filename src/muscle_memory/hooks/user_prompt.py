@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
         # if there's no DB yet, silently bail
         if not cfg.db_path.exists():
             return 0
+        # if paused, silently bail
+        if (cfg.db_path.parent / "mm.paused").exists():
+            return 0
 
         store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
         embedder = make_embedder(cfg)

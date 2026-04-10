@@ -72,6 +72,27 @@ def version() -> None:
 
 
 @app.command()
+def pause() -> None:
+    """Pause muscle-memory. Hooks will silently no-op until resumed."""
+    cfg = _load_config()
+    flag = cfg.db_path.parent / "mm.paused"
+    flag.touch()
+    console.print("[yellow]muscle-memory paused.[/yellow] No retrieval or extraction until `mm resume`.")
+
+
+@app.command()
+def resume() -> None:
+    """Resume muscle-memory after a pause."""
+    cfg = _load_config()
+    flag = cfg.db_path.parent / "mm.paused"
+    if flag.exists():
+        flag.unlink()
+        console.print("[green]muscle-memory resumed.[/green]")
+    else:
+        console.print("[dim]muscle-memory is not paused.[/dim]")
+
+
+@app.command()
 def init(
     scope: Scope = typer.Option(
         Scope.PROJECT,
@@ -193,9 +214,13 @@ def stats() -> None:
     for ep in episodes:
         by_outcome[ep.outcome] += 1
 
+    paused = (cfg.db_path.parent / "mm.paused").exists()
+    status_line = "[yellow]PAUSED[/yellow]" if paused else "[green]active[/green]"
+
     panel_text = (
         f"[bold]database[/bold] {cfg.db_path}\n"
-        f"[bold]project root[/bold] {cfg.project_root or '(global)'}\n\n"
+        f"[bold]project root[/bold] {cfg.project_root or '(global)'}\n"
+        f"[bold]status[/bold] {status_line}\n\n"
         f"[bold]skills[/bold] {len(skills)}"
         f"  (candidate: {by_maturity[Maturity.CANDIDATE]},"
         f"  established: {by_maturity[Maturity.ESTABLISHED]},"

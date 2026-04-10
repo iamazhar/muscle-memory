@@ -191,12 +191,13 @@ class Store:
                 )
                 """
             )
-            # Drop the old sqlite-vec virtual table if present
-            row = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='skill_vec'"
-            ).fetchone()
-            if row is not None:
-                conn.execute("DROP TABLE skill_vec")
+            # Try to drop the old sqlite-vec virtual table. This may fail
+            # if the vec0 module isn't loaded (the whole reason we're
+            # migrating away from it), so we just ignore the error.
+            try:
+                conn.execute("DROP TABLE IF EXISTS skill_vec")
+            except Exception:
+                pass  # vec0 module not available, table is orphaned but harmless
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 

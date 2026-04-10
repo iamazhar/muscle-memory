@@ -64,6 +64,7 @@ dmypy.json
 .claude/mm.db-*
 .claude/mm.activations/
 .claude/mm.extract_queue.txt
+.claude/mm.paused
 .claude/settings.json
 *.mm.db
 *.mm.db-*
