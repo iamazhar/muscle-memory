@@ -32,7 +32,6 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.6",
-    "sqlite-vec>=0.1.6",
     "anthropic>=0.40",
     "fastembed>=0.4",
     "platformdirs>=4.2",
@@ -122,5 +121,5 @@ disallow_untyped_defs = true
 no_implicit_optional = true
 
 [[tool.mypy.overrides]]
-module = ["sqlite_vec", "openai", "voyageai"]
+module = ["openai", "voyageai"]
 ignore_missing_imports = true
