@@ -153,12 +153,20 @@ class PlaybookHealth:
     needs_review: int = 0
     step_count: int = 0  # how many steps the playbook prescribes
     matched_step_total: int = 0  # total matched steps across all activations
+    tokens_deterministic: int = 0  # tokens used following playbook
+    tokens_exploration: int = 0  # tokens original discovery cost
 
     @property
     def health_pct(self) -> float:
         if self.activations == 0:
             return 0.0
         return self.correct / self.activations
+
+    @property
+    def efficiency_ratio(self) -> float:
+        if self.tokens_deterministic == 0:
+            return 0.0
+        return self.tokens_exploration / self.tokens_deterministic
 
 
 @dataclass
@@ -258,6 +266,9 @@ def evaluate_health(store: Store) -> HealthReport:
             ph = by_skill[skill_id]
             ph.activations += 1
             ph.matched_step_total += len(adh.matched_steps)
+            ph.tokens_deterministic += adh.tokens_deterministic
+            if adh.score >= 0.5:
+                ph.tokens_exploration += exploration_costs.get(skill_id, 0)
             # Running average
             ph.avg_relevance += (rel.score - ph.avg_relevance) / ph.activations
             ph.avg_adherence += (adh.score - ph.avg_adherence) / ph.activations
@@ -285,20 +296,12 @@ def evaluate_health(store: Store) -> HealthReport:
 
 
 def render_health_report(report: HealthReport) -> None:
-    """Print the health dashboard."""
+    """Print the health dashboard with visual efficiency bars."""
     if report.total_activations == 0:
         console.print("[dim]No skill activations found. Run some sessions first.[/dim]")
         return
 
     from rich.panel import Panel
-
-    # Hero metric: steps saved
-    exec_pct = (
-        report.steps_executed / report.steps_possible * 100
-        if report.steps_possible
-        else 0
-    )
-    hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
 
     def _fmt_tokens(n: int) -> str:
         if n >= 1_000_000:
@@ -307,76 +310,95 @@ def render_health_report(report: HealthReport) -> None:
             return f"{n / 1000:.1f}K"
         return str(n)
 
-    savings = report.tokens_exploration - report.tokens_deterministic
-    savings_str = _fmt_tokens(max(0, savings))
-    det_str = _fmt_tokens(report.tokens_deterministic)
-    expl_str = _fmt_tokens(report.tokens_exploration)
+    def _fmt_time(tokens: int) -> str:
+        """Estimate time from tokens at ~50 tokens/sec output."""
+        secs = tokens / 50
+        if secs >= 3600:
+            return f"{secs / 3600:.1f}h"
+        if secs >= 60:
+            return f"{secs / 60:.0f}m"
+        return f"{secs:.0f}s"
 
+    savings = max(0, report.tokens_exploration - report.tokens_deterministic)
+    ratio = (
+        report.tokens_exploration / report.tokens_deterministic
+        if report.tokens_deterministic > 0
+        else 0
+    )
+
+    exec_pct = (
+        report.steps_executed / report.steps_possible * 100
+        if report.steps_possible
+        else 0
+    )
+    hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
+
+    # Hero panel
     console.print(
         Panel(
-            f"[{hero_color} bold]{report.steps_executed}[/{hero_color} bold]"
-            f" [dim]of {report.steps_possible} prescribed steps followed"
-            f" across {report.total_activations} activations[/dim]\n\n"
-            f"[bold]With playbooks:[/bold]    ~{det_str} tokens"
-            f" [dim](deterministic execution)[/dim]\n"
-            f"[bold]Without playbooks:[/bold] ~{expl_str} tokens"
-            f" [dim](measured from source episodes)[/dim]\n"
-            f"[bold]Context saved:[/bold]     ~{savings_str} tokens",
-            title="Playbook Impact",
+            f"[{hero_color} bold]{ratio:.1f}x[/{hero_color} bold]"
+            f" [bold]efficiency gain[/bold]"
+            f" [dim]across {report.total_activations} activations[/dim]\n\n"
+            f"  [green]With playbooks[/green]     "
+            f"{_bar(report.tokens_deterministic, report.tokens_exploration, 'green')}"
+            f"  ~{_fmt_tokens(report.tokens_deterministic)}"
+            f" (~{_fmt_time(report.tokens_deterministic)})\n"
+            f"  [red]Without playbooks[/red]  "
+            f"{_bar(report.tokens_exploration, report.tokens_exploration, 'red')}"
+            f"  ~{_fmt_tokens(report.tokens_exploration)}"
+            f" (~{_fmt_time(report.tokens_exploration)})\n\n"
+            f"  [bold]Saved ~{_fmt_tokens(savings)} tokens"
+            f" (~{_fmt_time(savings)} of agent time)[/bold]",
+            title="Playbook Efficiency",
             border_style=hero_color,
         )
     )
 
-    # Secondary metrics
+    # Per-skill efficiency breakdown
+    skills_with_data = [
+        ph for ph in report.per_skill
+        if ph.tokens_exploration > 0 and ph.tokens_deterministic > 0
+    ]
+
+    if skills_with_data:
+        console.print()
+        # Sort by efficiency ratio descending
+        skills_with_data.sort(key=lambda p: p.efficiency_ratio, reverse=True)
+        max_expl = max(ph.tokens_exploration for ph in skills_with_data)
+
+        for ph in skills_with_data:
+            ratio_str = f"{ph.efficiency_ratio:.1f}x"
+            r_color = "green" if ph.efficiency_ratio >= 3 else "yellow" if ph.efficiency_ratio >= 1.5 else "dim"
+
+            console.print(
+                f"  [{r_color} bold]{ratio_str:>5}[/{r_color} bold]  "
+                f"[green]{_bar(ph.tokens_deterministic, max_expl, 'green', width=15)}[/green]"
+                f"[red]{_bar(ph.tokens_exploration, max_expl, 'red', width=15)}[/red]"
+                f"  {ph.activation[:45]}"
+            )
+
+    # Summary stats
+    console.print()
     h_color = "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
     console.print(
-        f"  [bold]Adherence:[/bold] {report.avg_adherence:.0%} of steps followed"
-        f"    [bold]Healthy:[/bold] [{h_color}]{report.healthy_pct:.0%}[/{h_color}]"
-        f"    [bold]Playbooks:[/bold] {len(report.per_skill)}"
+        f"  {report.steps_executed}/{report.steps_possible} steps followed"
+        f"  ({report.avg_adherence:.0%} adherence)"
+        f"    [{h_color}]{report.healthy_pct:.0%} healthy[/{h_color}]"
+        f"    {len(report.per_skill)} playbooks"
     )
     if report.needs_review_count:
         console.print(
-            f"  [yellow]{report.needs_review_count} activations need human review[/yellow]"
-            f" (run [bold]mm eval label[/bold])"
+            f"  [yellow]{report.needs_review_count} need review[/yellow]"
+            f" ([bold]mm eval label[/bold])"
         )
 
-    # Per-skill table
-    if report.per_skill:
-        console.print()
-        table = Table(title="Per-Skill Health")
-        table.add_column("id", style="dim", width=10)
-        table.add_column("activation", width=35)
-        table.add_column("acts", justify="right", width=5)
-        table.add_column("steps", justify="right", width=6)
-        table.add_column("adherence", justify="right", width=10)
-        table.add_column("correct", justify="right", width=10)
-        table.add_column("status", width=12)
 
-        for ph in report.per_skill:
-            a_color = "green" if ph.avg_adherence >= 0.5 else "red"
-            h_pct = ph.health_pct
-
-            if h_pct >= 0.7:
-                status = "[green]healthy[/green]"
-            elif ph.incorrect > 0:
-                status = "[red]bad steps[/red]"
-            elif ph.avg_adherence < 0.3:
-                status = "[yellow]ignored[/yellow]"
-            elif ph.needs_review > 0:
-                status = "[yellow]review[/yellow]"
-            else:
-                status = "[dim]ok[/dim]"
-
-            table.add_row(
-                ph.skill_id[:8],
-                ph.activation,
-                str(ph.activations),
-                str(ph.step_count),
-                f"[{a_color}]{ph.avg_adherence:.2f}[/{a_color}]",
-                f"{ph.correct}/{ph.activations}",
-                status,
-            )
-        console.print(table)
+def _bar(value: int, max_value: int, color: str, *, width: int = 30) -> str:
+    """Render a horizontal bar."""
+    if max_value == 0:
+        return ""
+    filled = max(1, int(value / max_value * width))
+    return f"[{color}]{'█' * filled}[/{color}]"
 
 
 # ------------------------------------------------------------------
