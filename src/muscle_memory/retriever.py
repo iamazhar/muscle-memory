@@ -109,9 +109,7 @@ def _normalize_token(token: str) -> str:
     token = token.lower().strip("`'\"")
     if len(token) > 6 and token.endswith("ing"):
         token = token[:-3]
-    elif len(token) > 5 and token.endswith("ed"):
-        token = token[:-2]
-    elif len(token) > 5 and token.endswith("es"):
+    elif len(token) > 5 and (token.endswith("ed") or token.endswith("es")):
         token = token[:-2]
     elif len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
         token = token[:-1]

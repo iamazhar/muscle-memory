@@ -20,7 +20,7 @@ from rich.rule import Rule
 
 from muscle_memory.db import Store
 from muscle_memory.eval import EvalLabel
-from muscle_memory.models import Episode, Outcome, Skill
+from muscle_memory.models import Episode, Skill
 
 console = Console()
 
@@ -177,7 +177,7 @@ def label_credits_interactive(store: Store, *, limit: int = 10) -> int:
 
 def _render_credit(event: CreditEvent, idx: int, total: int) -> None:
     """Render a credit event for labeling — compact, scannable."""
-    from muscle_memory.cli import _format_outcome, _format_score, _relative_time
+    from muscle_memory.cli import _format_outcome, _relative_time
 
     ep = event.episode
     skill = event.skill

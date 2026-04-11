@@ -69,6 +69,22 @@ def test_count_skills(tmp_db: Store) -> None:
     assert tmp_db.count_skills(scope=Scope.GLOBAL) == 0
 
 
+def test_list_live_skills_includes_legacy_established_rows(tmp_db: Store) -> None:
+    skill = Skill(
+        activation="legacy established skill",
+        execution="do the thing",
+        termination="done",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=[0.1, 0.2, 0.3, 0.4])
+
+    with tmp_db.batch() as conn:
+        conn.execute("UPDATE skills SET maturity = 'established' WHERE id = ?", (skill.id,))
+
+    live_skills = tmp_db.list_skills(maturity=Maturity.LIVE)
+    assert any(item.id == skill.id for item in live_skills)
+
+
 def test_search_by_embedding_returns_nearest(tmp_db: Store) -> None:
     # insert three skills with distinct embeddings
     embeddings = [

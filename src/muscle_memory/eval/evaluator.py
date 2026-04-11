@@ -113,7 +113,7 @@ def render_credit_eval(result: CreditEvalResult) -> None:
 
     # Per-skill breakdown
     if result.per_skill:
-        console.print(f"\n[bold]Per-Skill Credit Precision[/bold]")
+        console.print("\n[bold]Per-Skill Credit Precision[/bold]")
 
         table = Table(box=None, show_header=True, padding=(0, 1))
         table.add_column("id", style="dim", width=10)

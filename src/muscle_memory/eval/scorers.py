@@ -8,16 +8,15 @@ Three dimensions:
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
-
-import json
 from pathlib import Path
 
 from muscle_memory.db import Store
+from muscle_memory.embeddings import Embedder
 from muscle_memory.models import Episode, Outcome, Skill, Trajectory
-
 
 # ------------------------------------------------------------------
 # Relevance: embedding similarity between prompt and skill activation
@@ -37,7 +36,7 @@ def score_relevance(
     skill_id: str,
     *,
     stored_distance: float | None = None,
-    embedder: object | None = None,
+    embedder: Embedder | None = None,
 ) -> RelevanceScore:
     """Score how relevant a skill was to the user's prompt.
 
@@ -61,7 +60,7 @@ def score_relevance(
         return RelevanceScore(score=0.0, l2_distance=2.0, method="recomputed")
 
     # Embed the user prompt and compute L2 distance
-    prompt_emb = embedder.embed_one(episode.user_prompt)  # type: ignore[union-attr]
+    prompt_emb = embedder.embed_one(episode.user_prompt)
     distance = _l2_distance(prompt_emb, skill_emb)
     return RelevanceScore(
         score=_l2_to_similarity(distance),

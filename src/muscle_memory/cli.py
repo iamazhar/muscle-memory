@@ -807,7 +807,7 @@ def rescore() -> None:
 
     # Iterate episodes, re-infer outcomes, and rebuild per-skill counters
     # from the episode activation records.
-    episodes = store.list_episodes(limit=10_000)
+    episodes = store.list_episodes(limit=None)
     outcome_counts = {"success": 0, "failure": 0, "unknown": 0}
 
     for ep in episodes:
@@ -822,14 +822,14 @@ def rescore() -> None:
         store.update_episode_outcome(ep.id, outcome=signal.outcome, reward=signal.reward)
 
         for skill_id in dict.fromkeys(ep.activated_skills):
-            skill = skills_by_id.get(skill_id)
-            if skill is None:
+            activated_skill = skills_by_id.get(skill_id)
+            if activated_skill is None:
                 continue
-            skill.invocations += 1
+            activated_skill.invocations += 1
             if ep.outcome is Outcome.SUCCESS:
-                skill.successes += 1
+                activated_skill.successes += 1
             elif ep.outcome is Outcome.FAILURE:
-                skill.failures += 1
+                activated_skill.failures += 1
 
     for skill in skills_by_id.values():
         skill.recompute_score()
@@ -1139,17 +1139,12 @@ def eval_run(
     """Re-score against a frozen benchmark and show diffs."""
     from pathlib import Path as _Path
 
-    from rich.panel import Panel as _Panel
-
     from muscle_memory.eval.benchmark import run_benchmark
 
     cfg = _load_config()
     store = _open_store(cfg)
 
-    if benchmark:
-        path = _Path(benchmark)
-    else:
-        path = cfg.db_path.parent / "benchmark.json"
+    path = _Path(benchmark) if benchmark else cfg.db_path.parent / "benchmark.json"
 
     if not path.exists():
         console.print(

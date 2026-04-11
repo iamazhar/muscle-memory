@@ -12,13 +12,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from muscle_memory.db import Store
+from muscle_memory.embeddings import Embedder
 from muscle_memory.eval.scorers import (
     load_activation_distances,
     score_adherence,
     score_correctness,
     score_relevance,
 )
-from muscle_memory.models import Episode, Outcome
+from muscle_memory.models import Episode
 
 
 @dataclass
@@ -42,14 +43,14 @@ class BenchmarkRunResult:
     avg_adherence: float = 0.0
     baseline_avg_relevance: float = 0.0
     baseline_avg_adherence: float = 0.0
-    improved: list[dict] = field(default_factory=list)
-    degraded: list[dict] = field(default_factory=list)
+    improved: list[dict[str, str]] = field(default_factory=list)
+    degraded: list[dict[str, str]] = field(default_factory=list)
 
 
 def build_benchmark(
     store: Store,
     *,
-    embedder: object | None = None,
+    embedder: Embedder | None = None,
     output_path: Path | None = None,
 ) -> tuple[list[BenchmarkEntry], Path]:
     """Score all (episode, skill) activation pairs and export as frozen JSON.
@@ -93,18 +94,20 @@ def build_benchmark(
             # Score correctness
             cor = score_correctness(adh, ep.outcome)
 
-            entries.append(BenchmarkEntry(
-                skill_id=skill_id,
-                skill_activation=skill.activation[:100],
-                episode_id=ep.id,
-                user_prompt=ep.user_prompt[:100],
-                relevance_score=rel.score,
-                adherence_score=adh.score,
-                correctness_verdict=cor.verdict,
-                correctness_confidence=cor.confidence,
-                outcome=ep.outcome.value,
-                scored_at=now,
-            ))
+            entries.append(
+                BenchmarkEntry(
+                    skill_id=skill_id,
+                    skill_activation=skill.activation[:100],
+                    episode_id=ep.id,
+                    user_prompt=ep.user_prompt[:100],
+                    relevance_score=rel.score,
+                    adherence_score=adh.score,
+                    correctness_verdict=cor.verdict,
+                    correctness_confidence=cor.confidence,
+                    outcome=ep.outcome.value,
+                    scored_at=now,
+                )
+            )
 
     # Export
     if output_path is None:
@@ -125,7 +128,7 @@ def run_benchmark(
     store: Store,
     benchmark_path: Path,
     *,
-    embedder: object | None = None,
+    embedder: Embedder | None = None,
 ) -> BenchmarkRunResult:
     """Re-score against a frozen benchmark and report diffs."""
     raw = json.loads(benchmark_path.read_text())
@@ -134,8 +137,8 @@ def run_benchmark(
     if not baseline_entries:
         return BenchmarkRunResult()
 
-    improved: list[dict] = []
-    degraded: list[dict] = []
+    improved: list[dict[str, str]] = []
+    degraded: list[dict[str, str]] = []
     new_relevances: list[float] = []
     new_adherences: list[float] = []
     baseline_relevances: list[float] = []
@@ -160,19 +163,23 @@ def run_benchmark(
         adh_delta = adh.score - entry.adherence_score
 
         if rel_delta > 0.05 or adh_delta > 0.05:
-            improved.append({
-                "skill_id": entry.skill_id[:8],
-                "activation": entry.skill_activation[:50],
-                "relevance": f"{entry.relevance_score:.2f} -> {rel.score:.2f}",
-                "adherence": f"{entry.adherence_score:.2f} -> {adh.score:.2f}",
-            })
+            improved.append(
+                {
+                    "skill_id": entry.skill_id[:8],
+                    "activation": entry.skill_activation[:50],
+                    "relevance": f"{entry.relevance_score:.2f} -> {rel.score:.2f}",
+                    "adherence": f"{entry.adherence_score:.2f} -> {adh.score:.2f}",
+                }
+            )
         elif rel_delta < -0.05 or adh_delta < -0.05:
-            degraded.append({
-                "skill_id": entry.skill_id[:8],
-                "activation": entry.skill_activation[:50],
-                "relevance": f"{entry.relevance_score:.2f} -> {rel.score:.2f}",
-                "adherence": f"{entry.adherence_score:.2f} -> {adh.score:.2f}",
-            })
+            degraded.append(
+                {
+                    "skill_id": entry.skill_id[:8],
+                    "activation": entry.skill_activation[:50],
+                    "relevance": f"{entry.relevance_score:.2f} -> {rel.score:.2f}",
+                    "adherence": f"{entry.adherence_score:.2f} -> {adh.score:.2f}",
+                }
+            )
 
     n = len(new_relevances) or 1
     return BenchmarkRunResult(

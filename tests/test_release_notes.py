@@ -1,8 +1,10 @@
+"""Tests for release note extraction."""
+
 from __future__ import annotations
 
 import pytest
 
-from scripts.release_notes import extract_release_notes
+from muscle_memory.release_notes import extract_release_notes
 
 
 def test_extract_release_notes_returns_one_section() -> None:

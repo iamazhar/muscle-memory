@@ -43,7 +43,8 @@ def test_claude_code_llm_surfaces_cli_result_text_on_error() -> None:
         stdout=stdout,
         stderr="",
     )
-    with patch("subprocess.run", return_value=completed):
-        with pytest.raises(RuntimeError, match="Not logged in"):
-            llm.complete_text("system", "user")
-
+    with (
+        patch("subprocess.run", return_value=completed),
+        pytest.raises(RuntimeError, match="Not logged in"),
+    ):
+        llm.complete_text("system", "user")

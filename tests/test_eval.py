@@ -9,11 +9,10 @@ import pytest
 from muscle_memory.db import Store
 from muscle_memory.eval import EvalLabel
 from muscle_memory.eval.evaluator import (
-    CreditEvalResult,
     evaluate_credits,
     evaluate_impact,
 )
-from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
+from muscle_memory.models import Episode, Outcome, Skill, ToolCall, Trajectory
 
 
 @pytest.fixture

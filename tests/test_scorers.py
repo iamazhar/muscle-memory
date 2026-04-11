@@ -10,12 +10,11 @@ import pytest
 from muscle_memory.db import Store
 from muscle_memory.eval.scorers import (
     AdherenceScore,
-    RelevanceScore,
+    _extract_step_tokens,
+    _parse_execution_steps,
     score_adherence,
     score_correctness,
     score_relevance,
-    _extract_step_tokens,
-    _parse_execution_steps,
 )
 from muscle_memory.models import Episode, Outcome, Skill, ToolCall, Trajectory
 

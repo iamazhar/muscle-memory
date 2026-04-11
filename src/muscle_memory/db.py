@@ -11,9 +11,9 @@ import math
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from muscle_memory.models import (
     Episode,
@@ -24,6 +24,9 @@ from muscle_memory.models import (
     ToolCall,
     Trajectory,
 )
+
+if TYPE_CHECKING:
+    from muscle_memory.eval import EvalLabel
 
 SCHEMA_VERSION = 4
 
@@ -379,8 +382,12 @@ class Store:
             sql += " AND scope = ?"
             params.append(scope.value)
         if maturity is not None:
-            sql += " AND maturity = ?"
-            params.append(maturity.value)
+            if maturity is Maturity.LIVE:
+                sql += " AND maturity IN (?, ?)"
+                params.extend([Maturity.LIVE.value, "established"])
+            else:
+                sql += " AND maturity = ?"
+                params.append(maturity.value)
         sql += " ORDER BY score DESC, invocations DESC"
         if limit is not None:
             sql += " LIMIT ?"
@@ -479,7 +486,10 @@ class Store:
             ).fetchone()
             if row is None:
                 return None
-            return json.loads(row["embedding"])
+            loaded = json.loads(row["embedding"])
+            if not isinstance(loaded, list):
+                return None
+            return [float(value) for value in loaded]
         finally:
             conn.close()
 
@@ -529,12 +539,15 @@ class Store:
         finally:
             conn.close()
 
-    def list_episodes(self, *, limit: int = 50) -> list[Episode]:
+    def list_episodes(self, *, limit: int | None = 50) -> list[Episode]:
         conn = self._open()
         try:
-            rows = conn.execute(
-                "SELECT * FROM episodes ORDER BY started_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if limit is None:
+                rows = conn.execute("SELECT * FROM episodes ORDER BY started_at DESC").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM episodes ORDER BY started_at DESC LIMIT ?", (limit,)
+                ).fetchall()
             return [_row_to_episode(r) for r in rows]
         finally:
             conn.close()
@@ -690,7 +703,7 @@ def _row_to_skill(row: sqlite3.Row) -> Skill:
         source_episode_ids=json.loads(row["source_episode_ids"]),
         refinement_count=refinement_count,
         previous_text=previous_text,
-        created_at=_parse_iso(row["created_at"]),  # type: ignore[arg-type]
+        created_at=_parse_iso(row["created_at"]) or datetime.now(UTC),
         last_used_at=_parse_iso(row["last_used_at"]),
         last_refined_at=_parse_iso(row["last_refined_at"]),
     )
@@ -711,7 +724,7 @@ def _row_to_episode(row: sqlite3.Row) -> Episode:
         trajectory=trajectory,
         outcome=Outcome(row["outcome"]),
         reward=row["reward"],
-        started_at=_parse_iso(row["started_at"]),  # type: ignore[arg-type]
+        started_at=_parse_iso(row["started_at"]) or datetime.now(UTC),
         ended_at=_parse_iso(row["ended_at"]),
         project_path=row["project_path"],
         activated_skills=json.loads(row["activated_skills"]),
@@ -733,5 +746,5 @@ def _row_to_eval_label(row: sqlite3.Row) -> EvalLabel:
         skill_id=row["skill_id"] or "",
         relevance=row["relevance"] or "",
         rank_position=row["rank_position"] or 0,
-        labeled_at=_parse_iso(row["labeled_at"]) or datetime.now(),  # type: ignore[arg-type]
+        labeled_at=_parse_iso(row["labeled_at"]) or datetime.now(UTC),
     )
