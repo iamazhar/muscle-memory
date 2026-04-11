@@ -1,6 +1,6 @@
 [project]
 name = "muscle-memory"
-version = "0.7.0"
+version = "0.7.1"
 description = "Procedural memory for coding agents. Your past sessions, compiled."
 readme = "README.md"
 requires-python = ">=3.11"
