@@ -204,6 +204,52 @@ def _extract_step_tokens(step: str) -> list[str]:
     return tokens
 
 
+def estimate_exploration_cost(
+    skill: Skill,
+    store: Store,
+) -> int:
+    """Estimate tokens the agent spent discovering this solution originally.
+
+    Looks at the source episode (the session that generated this skill)
+    and counts tokens from tool calls that relate to the skill's domain.
+    This is the cost of solving the problem WITHOUT the playbook.
+    """
+    if not skill.source_episode_ids:
+        # No source episode — fall back to step_count * avg_tokens_per_exploration
+        steps = _parse_execution_steps(skill.execution)
+        return len(steps) * 800  # ~800 tokens per exploration step
+
+    # Load the source episode
+    source_ep = store.get_episode(skill.source_episode_ids[0])
+    if source_ep is None:
+        steps = _parse_execution_steps(skill.execution)
+        return len(steps) * 800
+
+    # Extract tokens from the skill's execution steps
+    steps = _parse_execution_steps(skill.execution)
+    all_step_tokens: list[str] = []
+    for step in steps:
+        all_step_tokens.extend(_extract_step_tokens(step))
+
+    if not all_step_tokens:
+        return len(steps) * 800
+
+    # Count tokens from source episode tool calls that match skill tokens
+    related_chars = 0
+    related_calls = 0
+    for tc in source_ep.trajectory.tool_calls:
+        tc_text = tc.name + " " + str(tc.arguments) + " " + (tc.result or "") + (tc.error or "")
+        tc_lower = tc_text.lower()
+        if any(t.lower() in tc_lower for t in all_step_tokens if t and len(t) >= 4):
+            related_chars += len(str(tc.arguments)) + len(tc.result or "") + len(tc.error or "")
+            related_calls += 1
+
+    if related_calls == 0:
+        return len(steps) * 800
+
+    return related_chars // 4  # ~4 chars per token
+
+
 def _count_matched_tokens(step_tokens: list[str], trajectory: Trajectory) -> int:
     """Count approximate tokens from tool calls that match step tokens.
 

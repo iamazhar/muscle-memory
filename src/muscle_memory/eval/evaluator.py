@@ -172,7 +172,7 @@ class HealthReport:
     steps_executed: int = 0
     steps_possible: int = 0
     tokens_deterministic: int = 0  # tokens spent on matched steps (deterministic execution)
-    tokens_saved_estimate: int = 0  # estimated tokens saved vs. rediscovery
+    tokens_exploration: int = 0  # tokens the original discovery cost (from source episodes)
 
 
 def evaluate_health(store: Store) -> HealthReport:
@@ -182,6 +182,7 @@ def evaluate_health(store: Store) -> HealthReport:
     on every (episode, skill) activation pair.
     """
     from muscle_memory.eval.scorers import (
+        estimate_exploration_cost,
         load_activation_distances,
         score_adherence,
         score_correctness,
@@ -199,6 +200,7 @@ def evaluate_health(store: Store) -> HealthReport:
             by_session[sid] = ep
 
     by_skill: dict[str, PlaybookHealth] = {}
+    exploration_costs: dict[str, int] = {}  # skill_id -> tokens for original discovery
     all_relevances: list[float] = []
     all_adherences: list[float] = []
     total = 0
@@ -207,6 +209,7 @@ def evaluate_health(store: Store) -> HealthReport:
     steps_executed = 0
     steps_possible = 0
     tokens_deterministic = 0
+    tokens_exploration = 0
 
     for ep in by_session.values():
         if not ep.activated_skills:
@@ -233,6 +236,13 @@ def evaluate_health(store: Store) -> HealthReport:
             steps_executed += len(adh.matched_steps)
             steps_possible += adh.total_steps
             tokens_deterministic += adh.tokens_deterministic
+
+            # Compute exploration cost once per skill
+            if skill_id not in exploration_costs:
+                exploration_costs[skill_id] = estimate_exploration_cost(skill, store)
+            # Each activation where steps were followed saves the exploration cost
+            if adh.score >= 0.5:
+                tokens_exploration += exploration_costs[skill_id]
 
             if rel.score >= 0.5 and adh.score >= 0.5 and cor.verdict == "correct":
                 healthy += 1
@@ -270,10 +280,7 @@ def evaluate_health(store: Store) -> HealthReport:
         steps_executed=steps_executed,
         steps_possible=steps_possible,
         tokens_deterministic=tokens_deterministic,
-        # Without the playbook, each step requires ~3-5x more tokens
-        # (failed attempts, reading docs, trial-and-error exploration).
-        # Conservative 3x multiplier.
-        tokens_saved_estimate=tokens_deterministic * 2,
+        tokens_exploration=tokens_exploration,
     )
 
 
@@ -293,18 +300,28 @@ def render_health_report(report: HealthReport) -> None:
     )
     hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
 
-    # Format token numbers with K suffix
-    det_k = f"{report.tokens_deterministic / 1000:.1f}K" if report.tokens_deterministic >= 1000 else str(report.tokens_deterministic)
-    saved_k = f"{report.tokens_saved_estimate / 1000:.1f}K" if report.tokens_saved_estimate >= 1000 else str(report.tokens_saved_estimate)
+    def _fmt_tokens(n: int) -> str:
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if n >= 1000:
+            return f"{n / 1000:.1f}K"
+        return str(n)
+
+    savings = report.tokens_exploration - report.tokens_deterministic
+    savings_str = _fmt_tokens(max(0, savings))
+    det_str = _fmt_tokens(report.tokens_deterministic)
+    expl_str = _fmt_tokens(report.tokens_exploration)
 
     console.print(
         Panel(
             f"[{hero_color} bold]{report.steps_executed}[/{hero_color} bold]"
             f" [dim]of {report.steps_possible} prescribed steps followed"
             f" across {report.total_activations} activations[/dim]\n\n"
-            f"[bold]Context used:[/bold] ~{det_k} tokens (deterministic execution)\n"
-            f"[bold]Context saved:[/bold] ~{saved_k} tokens"
-            f" [dim](estimated exploration overhead avoided)[/dim]",
+            f"[bold]With playbooks:[/bold]    ~{det_str} tokens"
+            f" [dim](deterministic execution)[/dim]\n"
+            f"[bold]Without playbooks:[/bold] ~{expl_str} tokens"
+            f" [dim](measured from source episodes)[/dim]\n"
+            f"[bold]Context saved:[/bold]     ~{savings_str} tokens",
             title="Playbook Impact",
             border_style=hero_color,
         )
