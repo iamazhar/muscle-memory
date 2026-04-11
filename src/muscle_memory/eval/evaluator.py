@@ -310,15 +310,6 @@ def render_health_report(report: HealthReport) -> None:
             return f"{n / 1000:.1f}K"
         return str(n)
 
-    def _fmt_time(tokens: int) -> str:
-        """Estimate time from tokens at ~50 tokens/sec output."""
-        secs = tokens / 50
-        if secs >= 3600:
-            return f"{secs / 3600:.1f}h"
-        if secs >= 60:
-            return f"{secs / 60:.0f}m"
-        return f"{secs:.0f}s"
-
     savings = max(0, report.tokens_exploration - report.tokens_deterministic)
     ratio = (
         report.tokens_exploration / report.tokens_deterministic
@@ -333,7 +324,7 @@ def render_health_report(report: HealthReport) -> None:
     )
     hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
 
-    # Hero panel
+    # Hero panel — tokens only, no fake time estimates
     console.print(
         Panel(
             f"[{hero_color} bold]{ratio:.1f}x[/{hero_color} bold]"
@@ -341,14 +332,13 @@ def render_health_report(report: HealthReport) -> None:
             f" [dim]across {report.total_activations} activations[/dim]\n\n"
             f"  [green]With playbooks[/green]     "
             f"{_bar(report.tokens_deterministic, report.tokens_exploration, 'green')}"
-            f"  ~{_fmt_tokens(report.tokens_deterministic)}"
-            f" (~{_fmt_time(report.tokens_deterministic)})\n"
+            f"  ~{_fmt_tokens(report.tokens_deterministic)} tokens\n"
             f"  [red]Without playbooks[/red]  "
             f"{_bar(report.tokens_exploration, report.tokens_exploration, 'red')}"
-            f"  ~{_fmt_tokens(report.tokens_exploration)}"
-            f" (~{_fmt_time(report.tokens_exploration)})\n\n"
-            f"  [bold]Saved ~{_fmt_tokens(savings)} tokens"
-            f" (~{_fmt_time(savings)} of agent time)[/bold]",
+            f"  ~{_fmt_tokens(report.tokens_exploration)} tokens"
+            f" [dim](from source episodes)[/dim]\n\n"
+            f"  [bold]Saved ~{_fmt_tokens(savings)} tokens[/bold]"
+            f"  ({report.steps_executed}/{report.steps_possible} steps followed)",
             title="Playbook Efficiency",
             border_style=hero_color,
         )

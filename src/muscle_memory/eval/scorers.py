@@ -210,44 +210,52 @@ def estimate_exploration_cost(
 ) -> int:
     """Estimate tokens the agent spent discovering this solution originally.
 
-    Looks at the source episode (the session that generated this skill)
-    and counts tokens from tool calls that relate to the skill's domain.
-    This is the cost of solving the problem WITHOUT the playbook.
-    """
-    if not skill.source_episode_ids:
-        # No source episode — fall back to step_count * avg_tokens_per_exploration
-        steps = _parse_execution_steps(skill.execution)
-        return len(steps) * 800  # ~800 tokens per exploration step
+    Uses per-step matching against the source episode (symmetric with
+    _count_matched_tokens). For each step, finds the FIRST matching call
+    in the source episode, then counts a window of nearby calls as the
+    exploration for that step (the original failed attempts + the success).
 
-    # Load the source episode
+    This avoids inflating the count by matching unrelated calls in a
+    long multi-task session.
+    """
+    steps = _parse_execution_steps(skill.execution)
+    if not steps:
+        return 0
+
+    if not skill.source_episode_ids:
+        return 0  # no source data — don't guess
+
     source_ep = store.get_episode(skill.source_episode_ids[0])
     if source_ep is None:
-        steps = _parse_execution_steps(skill.execution)
-        return len(steps) * 800
+        return 0
 
-    # Extract tokens from the skill's execution steps
-    steps = _parse_execution_steps(skill.execution)
-    all_step_tokens: list[str] = []
+    calls = source_ep.trajectory.tool_calls
+    total_chars = 0
+    used_indices: set[int] = set()
+
     for step in steps:
-        all_step_tokens.extend(_extract_step_tokens(step))
+        tokens = _extract_step_tokens(step)
+        if not tokens:
+            continue
 
-    if not all_step_tokens:
-        return len(steps) * 800
+        # Find the first matching call for this step
+        for i, tc in enumerate(calls):
+            if i in used_indices:
+                continue
+            tc_text = tc.name + " " + str(tc.arguments) + " " + (tc.result or "") + (tc.error or "")
+            tc_lower = tc_text.lower()
+            if any(t.lower() in tc_lower for t in tokens if t and len(t) >= 4):
+                # Count this call plus up to 2 preceding calls as exploration
+                # (the agent typically tries 1-2 wrong approaches before the right one)
+                window_start = max(0, i - 2)
+                for j in range(window_start, i + 1):
+                    if j not in used_indices:
+                        used_indices.add(j)
+                        c = calls[j]
+                        total_chars += len(str(c.arguments)) + len(c.result or "") + len(c.error or "")
+                break
 
-    # Count tokens from source episode tool calls that match skill tokens
-    related_chars = 0
-    related_calls = 0
-    for tc in source_ep.trajectory.tool_calls:
-        tc_text = tc.name + " " + str(tc.arguments) + " " + (tc.result or "") + (tc.error or "")
-        tc_lower = tc_text.lower()
-        if any(t.lower() in tc_lower for t in all_step_tokens if t and len(t) >= 4):
-            related_chars += len(str(tc.arguments)) + len(tc.result or "") + len(tc.error or "")
-            related_calls += 1
-
-    if related_calls == 0:
-        return len(steps) * 800
-
-    return related_chars // 4  # ~4 chars per token
+    return total_chars // 4  # ~4 chars per token
 
 
 def _count_matched_tokens(step_tokens: list[str], trajectory: Trajectory) -> int:
