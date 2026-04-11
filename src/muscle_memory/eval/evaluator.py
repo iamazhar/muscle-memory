@@ -354,17 +354,18 @@ def render_health_report(report: HealthReport) -> None:
         console.print()
         # Sort by efficiency ratio descending
         skills_with_data.sort(key=lambda p: p.efficiency_ratio, reverse=True)
-        max_expl = max(ph.tokens_exploration for ph in skills_with_data)
+        max_ratio = max(ph.efficiency_ratio for ph in skills_with_data)
 
         for ph in skills_with_data:
-            ratio_str = f"{ph.efficiency_ratio:.1f}x"
-            r_color = "green" if ph.efficiency_ratio >= 3 else "yellow" if ph.efficiency_ratio >= 1.5 else "dim"
+            r = ph.efficiency_ratio
+            ratio_str = f"{r:.1f}x"
+            r_color = "green" if r >= 3 else "yellow" if r >= 1.5 else "dim"
 
+            # Bar length represents the ratio — longer = more efficient
+            bar = _bar(int(r * 100), int(max_ratio * 100), r_color, width=20)
             console.print(
                 f"  [{r_color} bold]{ratio_str:>5}[/{r_color} bold]  "
-                f"[green]{_bar(ph.tokens_deterministic, max_expl, 'green', width=15)}[/green]"
-                f"[red]{_bar(ph.tokens_exploration, max_expl, 'red', width=15)}[/red]"
-                f"  {ph.activation[:45]}"
+                f"{bar}  {ph.activation[:50]}"
             )
 
     # Summary stats
