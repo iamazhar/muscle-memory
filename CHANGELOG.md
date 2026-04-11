@@ -11,7 +11,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - Standalone binary distribution via PyInstaller (macOS arm64/x86_64, Linux x86_64)
 - Homebrew tap: `brew tap iamazhar/tap && brew install muscle-memory`
-- CI/CD: GitHub Actions for lint, typecheck, test (Python 3.11-3.13), and PyPI publishing
+- CI/CD: GitHub Actions for lint, typecheck, and test (Python 3.11-3.13)
 - Dependabot for automated dependency updates
 - Extraction kick-off notification via Claude Code's `stopReason` hook response
 
