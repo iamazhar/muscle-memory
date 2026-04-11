@@ -169,6 +169,8 @@ class HealthReport:
     avg_adherence: float = 0.0
     per_skill: list[PlaybookHealth] = field(default_factory=list)
     needs_review_count: int = 0
+    steps_executed: int = 0
+    steps_possible: int = 0
 
 
 def evaluate_health(store: Store) -> HealthReport:
@@ -200,6 +202,8 @@ def evaluate_health(store: Store) -> HealthReport:
     total = 0
     healthy = 0
     needs_review = 0
+    steps_executed = 0
+    steps_possible = 0
 
     for ep in by_session.values():
         if not ep.activated_skills:
@@ -223,6 +227,8 @@ def evaluate_health(store: Store) -> HealthReport:
             total += 1
             all_relevances.append(rel.score)
             all_adherences.append(adh.score)
+            steps_executed += len(adh.matched_steps)
+            steps_possible += adh.total_steps
 
             if rel.score >= 0.5 and adh.score >= 0.5 and cor.verdict == "correct":
                 healthy += 1
@@ -257,6 +263,8 @@ def evaluate_health(store: Store) -> HealthReport:
         avg_adherence=sum(all_adherences) / len(all_adherences) if all_adherences else 0.0,
         per_skill=per_skill,
         needs_review_count=needs_review,
+        steps_executed=steps_executed,
+        steps_possible=steps_possible,
     )
 
 
@@ -266,24 +274,34 @@ def render_health_report(report: HealthReport) -> None:
         console.print("[dim]No skill activations found. Run some sessions first.[/dim]")
         return
 
-    console.print(f"[bold]Playbook Health[/bold] ({report.total_activations} activations)\n")
+    from rich.panel import Panel
 
-    # Overall metrics
-    total_steps = sum(ph.step_count for ph in report.per_skill)
-    total_matched = sum(ph.matched_step_total for ph in report.per_skill)
+    # Hero metric: steps saved
+    exec_pct = (
+        report.steps_executed / report.steps_possible * 100
+        if report.steps_possible
+        else 0
+    )
+    hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
+    console.print(
+        Panel(
+            f"[{hero_color} bold]{report.steps_executed}[/{hero_color} bold]"
+            f" [dim]of {report.steps_possible} prescribed steps followed"
+            f" across {report.total_activations} playbook activations[/dim]\n\n"
+            f"Each step followed = a known fix applied instantly instead of"
+            f" the agent rediscovering the solution from scratch.",
+            title="Steps Saved",
+            border_style=hero_color,
+        )
+    )
 
+    # Secondary metrics
     h_color = "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
     console.print(
-        f"  [bold]Healthy:[/bold] [{h_color}]{report.healthy_pct:.0%}[/{h_color}]"
-        f"  [bold]Avg relevance:[/bold] {report.avg_relevance:.2f}"
-        f"  [bold]Avg adherence:[/bold] {report.avg_adherence:.2f}"
+        f"  [bold]Adherence:[/bold] {report.avg_adherence:.0%} of steps followed"
+        f"    [bold]Healthy:[/bold] [{h_color}]{report.healthy_pct:.0%}[/{h_color}]"
+        f"    [bold]Playbooks:[/bold] {len(report.per_skill)}"
     )
-    if total_steps:
-        console.print(
-            f"  [bold]Steps executed:[/bold] {total_matched} / "
-            f"{total_steps * report.total_activations // len(report.per_skill)} possible"
-            f"  [dim](each followed step = a problem solved without trial-and-error)[/dim]"
-        )
     if report.needs_review_count:
         console.print(
             f"  [yellow]{report.needs_review_count} activations need human review[/yellow]"
