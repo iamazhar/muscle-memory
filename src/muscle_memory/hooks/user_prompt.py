@@ -73,7 +73,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         retriever.mark_activated(hits)
-        _record_activation(cfg, session_id, [h.skill.id for h in hits])
+        _record_activation(
+            cfg, session_id,
+            [{"skill_id": h.skill.id, "distance": h.distance} for h in hits],
+        )
     except Exception:
         pass  # nice-to-have, not critical
 
@@ -252,21 +255,41 @@ def _format_context(hits: list[RetrievedSkill]) -> str:
     return "\n".join(lines)
 
 
-def _record_activation(cfg: Config, session_id: str, skill_ids: list[str]) -> None:
+def _record_activation(
+    cfg: Config,
+    session_id: str,
+    activations: list[dict],
+) -> None:
+    """Record which skills were activated with their retrieval distances.
+
+    Format: [{"skill_id": "abc", "distance": 0.42}, ...]
+    Backward compatible: _load_activations in stop.py handles both
+    old format (list of strings) and new format (list of dicts).
+    """
     if not session_id:
         return
     activations_dir = cfg.db_path.parent / "mm.activations"
     activations_dir.mkdir(parents=True, exist_ok=True)
     sidecar = activations_dir / f"{session_id}.json"
 
-    existing: list[str] = []
+    existing: list[dict] = []
     if sidecar.exists():
         try:
-            existing = json.loads(sidecar.read_text())
+            raw = json.loads(sidecar.read_text())
+            # Handle old format: convert strings to dicts
+            for entry in raw:
+                if isinstance(entry, str):
+                    existing.append({"skill_id": entry, "distance": None})
+                elif isinstance(entry, dict):
+                    existing.append(entry)
         except Exception:
             existing = []
-    merged = list(dict.fromkeys([*existing, *skill_ids]))
-    sidecar.write_text(json.dumps(merged))
+
+    # Merge by skill_id, preferring new entries (they have distances)
+    by_id = {e["skill_id"]: e for e in existing}
+    for a in activations:
+        by_id[a["skill_id"]] = a
+    sidecar.write_text(json.dumps(list(by_id.values())))
 
 
 if __name__ == "__main__":

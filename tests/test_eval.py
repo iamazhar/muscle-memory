@@ -9,11 +9,11 @@ import pytest
 from muscle_memory.db import Store
 from muscle_memory.eval import EvalLabel
 from muscle_memory.eval.evaluator import (
-    OutcomeEvalResult,
+    CreditEvalResult,
+    evaluate_credits,
     evaluate_impact,
-    evaluate_outcomes,
 )
-from muscle_memory.models import Episode, Outcome, Scope, ToolCall, Trajectory
+from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
 
 
 @pytest.fixture
@@ -40,20 +40,32 @@ def _make_episode(
     )
 
 
+def _make_skill(store, skill_id: str = "") -> Skill:
+    sid = skill_id or uuid.uuid4().hex[:16]
+    skill = Skill(
+        id=sid,
+        activation="When X happens",
+        execution="Do Y",
+        termination="Done when Z",
+    )
+    store.add_skill(skill)
+    return skill
+
+
 class TestEvalLabels:
     def test_add_and_get_label(self, store):
         label = EvalLabel(
             id="test1",
-            label_type="outcome",
+            label_type="credit",
             episode_id="ep1",
+            skill_id="sk1",
             heuristic_outcome="success",
-            human_outcome="failure",
+            human_outcome="deserved",
         )
         store.add_eval_label(label)
-        labels = store.get_eval_labels("outcome")
+        labels = store.get_eval_labels("credit")
         assert len(labels) == 1
-        assert labels[0].human_outcome == "failure"
-        assert labels[0].heuristic_outcome == "success"
+        assert labels[0].human_outcome == "deserved"
 
     def test_get_outcome_label(self, store):
         label = EvalLabel(
@@ -69,12 +81,12 @@ class TestEvalLabels:
         assert store.get_outcome_label("nonexistent") is None
 
     def test_count_labels(self, store):
-        assert store.count_eval_labels("outcome") == 0
-        store.add_eval_label(EvalLabel(id="a", label_type="outcome", episode_id="ep1"))
-        store.add_eval_label(EvalLabel(id="b", label_type="outcome", episode_id="ep2"))
-        store.add_eval_label(EvalLabel(id="c", label_type="retrieval", episode_id="ep1"))
-        assert store.count_eval_labels("outcome") == 2
-        assert store.count_eval_labels("retrieval") == 1
+        assert store.count_eval_labels("credit") == 0
+        store.add_eval_label(EvalLabel(id="a", label_type="credit", episode_id="ep1", skill_id="s1"))
+        store.add_eval_label(EvalLabel(id="b", label_type="credit", episode_id="ep2", skill_id="s2"))
+        store.add_eval_label(EvalLabel(id="c", label_type="outcome", episode_id="ep1"))
+        assert store.count_eval_labels("credit") == 2
+        assert store.count_eval_labels("outcome") == 1
 
     def test_list_unlabeled_episodes(self, store):
         ep1 = _make_episode()
@@ -93,80 +105,74 @@ class TestEvalLabels:
         assert unlabeled[0].id == ep2.id
 
 
-class TestOutcomeEval:
+class TestCreditEval:
     def test_empty_labels(self, store):
-        result = evaluate_outcomes(store)
+        result = evaluate_credits(store)
         assert result.total == 0
 
-    def test_agreement(self, store):
-        # Use a trajectory the heuristic actually calls SUCCESS
-        ep = _make_episode(
-            outcome=Outcome.SUCCESS,
-            tool_calls=[
-                ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed in 1.2s"),
-            ],
-        )
+    def test_all_deserved(self, store):
+        skill = _make_skill(store)
+        ep = _make_episode(activated_skills=[skill.id])
         store.add_episode(ep)
-        store.add_eval_label(
-            EvalLabel(
-                id="l1",
-                label_type="outcome",
-                episode_id=ep.id,
-                human_outcome="success",
-            )
-        )
-        result = evaluate_outcomes(store)
+
+        store.add_eval_label(EvalLabel(
+            id="l1", label_type="credit",
+            episode_id=ep.id, skill_id=skill.id,
+            heuristic_outcome="success", human_outcome="deserved",
+        ))
+        result = evaluate_credits(store)
         assert result.total == 1
-        assert result.agreement == 1
-        assert result.agreement_rate == 1.0
+        assert result.deserved == 1
+        assert result.precision == 1.0
 
-    def test_disagreement(self, store):
-        # Heuristic says SUCCESS (pytest passed), human says FAILURE
-        ep = _make_episode(
-            outcome=Outcome.SUCCESS,
-            tool_calls=[
-                ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed in 1.2s"),
-            ],
-        )
+    def test_mixed_credits(self, store):
+        s1 = _make_skill(store, "skill_good")
+        s2 = _make_skill(store, "skill_bad_")
+        ep = _make_episode(activated_skills=[s1.id, s2.id])
         store.add_episode(ep)
-        store.add_eval_label(
-            EvalLabel(
-                id="l2",
-                label_type="outcome",
-                episode_id=ep.id,
-                human_outcome="failure",
-            )
-        )
-        result = evaluate_outcomes(store)
-        assert result.agreement == 0
-        assert len(result.disagreements) == 1
 
-    def test_precision_recall(self):
-        result = OutcomeEvalResult(
-            total=4,
-            agreement=3,
-            matrix={
-                "success": {"success": 2, "failure": 1, "unknown": 0},
-                "failure": {"success": 0, "failure": 1, "unknown": 0},
-                "unknown": {"success": 0, "failure": 0, "unknown": 0},
-            },
-        )
-        # precision(success) = 2 / (2+1+0) = 0.667
-        assert abs(result.precision("success") - 2 / 3) < 0.01
-        # recall(success) = 2 / (2+0+0) = 1.0
-        assert result.recall("success") == 1.0
-        # precision(failure) = 1 / (1+0) = 1.0
-        assert result.precision("failure") == 1.0
-        # recall(failure) = 1 / (1+1+0) = 0.5
-        assert result.recall("failure") == 0.5
+        store.add_eval_label(EvalLabel(
+            id="l1", label_type="credit",
+            episode_id=ep.id, skill_id=s1.id,
+            human_outcome="deserved",
+        ))
+        store.add_eval_label(EvalLabel(
+            id="l2", label_type="credit",
+            episode_id=ep.id, skill_id=s2.id,
+            human_outcome="undeserved",
+        ))
+        result = evaluate_credits(store)
+        assert result.total == 2
+        assert result.deserved == 1
+        assert result.undeserved == 1
+        assert result.precision == 0.5
+
+    def test_per_skill_breakdown(self, store):
+        s1 = _make_skill(store, "skill_good2")
+        ep1 = _make_episode(activated_skills=[s1.id])
+        ep2 = _make_episode(activated_skills=[s1.id])
+        store.add_episode(ep1)
+        store.add_episode(ep2)
+
+        store.add_eval_label(EvalLabel(
+            id="l1", label_type="credit",
+            episode_id=ep1.id, skill_id=s1.id,
+            human_outcome="deserved",
+        ))
+        store.add_eval_label(EvalLabel(
+            id="l2", label_type="credit",
+            episode_id=ep2.id, skill_id=s1.id,
+            human_outcome="undeserved",
+        ))
+        result = evaluate_credits(store)
+        assert len(result.per_skill) == 1
+        assert result.per_skill[0].precision == 0.5
 
 
 class TestImpactEval:
     def test_with_vs_without(self, store):
-        # 2 episodes with skills (1 success, 1 failure)
         store.add_episode(_make_episode(Outcome.SUCCESS, activated_skills=["s1"]))
         store.add_episode(_make_episode(Outcome.FAILURE, activated_skills=["s1"]))
-        # 2 episodes without skills (both unknown)
         store.add_episode(_make_episode(Outcome.UNKNOWN))
         store.add_episode(_make_episode(Outcome.UNKNOWN))
 
@@ -177,13 +183,11 @@ class TestImpactEval:
         assert result.without_skills.success_rate == 0.0
 
     def test_per_skill_requires_3_episodes(self, store):
-        # Only 2 episodes for skill "s1" — below threshold
         store.add_episode(_make_episode(Outcome.SUCCESS, activated_skills=["s1"]))
         store.add_episode(_make_episode(Outcome.SUCCESS, activated_skills=["s1"]))
         result = evaluate_impact(store)
         assert len(result.per_skill) == 0
 
-        # Add a third
         store.add_episode(_make_episode(Outcome.FAILURE, activated_skills=["s1"]))
         result = evaluate_impact(store)
         assert len(result.per_skill) == 1

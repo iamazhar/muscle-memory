@@ -961,49 +961,50 @@ def hook_stop() -> None:
 
 @eval_app.command("label")
 def eval_label(
-    outcome: bool = typer.Option(True, "--outcome/--retrieval", help="Label type."),
     limit: int = typer.Option(10, "--limit", "-n"),
 ) -> None:
-    """Interactively label episodes with ground-truth outcomes."""
-    if not outcome:
-        console.print("[dim]Retrieval labeling not yet implemented.[/dim]")
-        return
-    from muscle_memory.eval.labeler import label_outcomes_interactive
+    """Label skill credit assignments: did the skill actually help?"""
+    from muscle_memory.eval.labeler import label_credits_interactive
 
     cfg = _load_config()
     store = _open_store(cfg)
-    label_outcomes_interactive(store, limit=limit)
+    label_credits_interactive(store, limit=limit)
 
 
-@eval_app.command("outcomes")
-def eval_outcomes(
+@eval_app.command("credits")
+def eval_credits(
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """Evaluate outcome detection accuracy against human labels."""
-    from muscle_memory.eval.evaluator import evaluate_outcomes, render_outcome_eval
+    """Evaluate whether skill credits are deserved based on labels."""
+    from muscle_memory.eval.evaluator import evaluate_credits, render_credit_eval
 
     cfg = _load_config()
     store = _open_store(cfg)
-    result = evaluate_outcomes(store)
+    result = evaluate_credits(store)
 
     if as_json:
         import json as _json
 
         data = {
             "total": result.total,
-            "agreement": result.agreement,
-            "agreement_rate": result.agreement_rate,
-            "matrix": result.matrix,
-            "precision_success": result.precision("success"),
-            "recall_success": result.recall("success"),
-            "precision_failure": result.precision("failure"),
-            "recall_failure": result.recall("failure"),
-            "disagreements": result.disagreements,
+            "precision": result.precision,
+            "deserved": result.deserved,
+            "undeserved": result.undeserved,
+            "per_skill": [
+                {
+                    "skill_id": s.skill_id,
+                    "activation": s.activation,
+                    "precision": s.precision,
+                    "deserved": s.deserved,
+                    "total": s.total,
+                }
+                for s in result.per_skill
+            ],
         }
         typer.echo(_json.dumps(data, indent=2))
         return
 
-    render_outcome_eval(result)
+    render_credit_eval(result)
 
 
 @eval_app.command("impact")
@@ -1054,28 +1055,97 @@ def eval_impact(
     render_impact_eval(result)
 
 
+@eval_app.command("build")
+def eval_build(
+    output: str = typer.Option(None, "--output", "-o", help="Output path for benchmark JSON."),
+) -> None:
+    """Score all activations and export a frozen benchmark."""
+    from pathlib import Path as _Path
+
+    from muscle_memory.eval.benchmark import build_benchmark
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    out = _Path(output) if output else None
+    entries, path = build_benchmark(store, output_path=out)
+    console.print(
+        f"[green]Built benchmark:[/green] {len(entries)} entries -> {path}"
+    )
+
+
+@eval_app.command("run")
+def eval_run(
+    benchmark: str = typer.Option(None, "--benchmark", "-b", help="Path to benchmark JSON."),
+) -> None:
+    """Re-score against a frozen benchmark and show diffs."""
+    from pathlib import Path as _Path
+
+    from rich.panel import Panel as _Panel
+
+    from muscle_memory.eval.benchmark import run_benchmark
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+
+    if benchmark:
+        path = _Path(benchmark)
+    else:
+        path = cfg.db_path.parent / "benchmark.json"
+
+    if not path.exists():
+        console.print(
+            f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first."
+        )
+        return
+
+    result = run_benchmark(store, path)
+
+    console.print(f"[bold]Benchmark Run[/bold] ({result.total} entries)\n")
+    console.print(
+        f"  [bold]Relevance:[/bold] {result.avg_relevance:.2f}"
+        f"  (baseline {result.baseline_avg_relevance:.2f},"
+        f"  delta {result.avg_relevance - result.baseline_avg_relevance:+.2f})"
+    )
+    console.print(
+        f"  [bold]Adherence:[/bold] {result.avg_adherence:.2f}"
+        f"  (baseline {result.baseline_avg_adherence:.2f},"
+        f"  delta {result.avg_adherence - result.baseline_avg_adherence:+.2f})"
+    )
+
+    if result.improved:
+        console.print(f"\n  [green]Improved ({len(result.improved)}):[/green]")
+        for d in result.improved[:5]:
+            console.print(f"    {d['skill_id']}  {d['activation']}")
+    if result.degraded:
+        console.print(f"\n  [red]Degraded ({len(result.degraded)}):[/red]")
+        for d in result.degraded[:5]:
+            console.print(f"    {d['skill_id']}  {d['activation']}")
+    if not result.improved and not result.degraded:
+        console.print("\n  [dim]No significant changes.[/dim]")
+
+
 @eval_app.command("report")
 def eval_report() -> None:
-    """Run all evaluators and print a combined report."""
+    """Playbook health dashboard."""
     from muscle_memory.eval.evaluator import (
+        evaluate_health,
         evaluate_impact,
-        evaluate_outcomes,
+        render_health_report,
         render_impact_eval,
-        render_outcome_eval,
     )
 
     cfg = _load_config()
     store = _open_store(cfg)
 
-    # Outcomes
-    outcome_result = evaluate_outcomes(store)
-    render_outcome_eval(outcome_result)
+    # Health
+    health = evaluate_health(store)
+    render_health_report(health)
 
     console.print()
 
     # Impact
-    impact_result = evaluate_impact(store)
-    render_impact_eval(impact_result)
+    impact = evaluate_impact(store)
+    render_impact_eval(impact)
 
 
 # ----------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [project]
 name = "muscle-memory"
-version = "0.5.0"
+version = "0.6.0"
 description = "Procedural memory for coding agents. Your past sessions, compiled."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -64,6 +64,7 @@ packages = ["src/muscle_memory"]
 include = [
     "src/muscle_memory/**/*.py",
     "src/muscle_memory/**/*.md",
+    "src/muscle_memory/**/*.html",
     "src/muscle_memory/prompts/*.md",
 ]
 

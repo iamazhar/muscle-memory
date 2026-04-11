@@ -1,165 +1,326 @@
-"""Evaluation logic: outcome accuracy, retrieval quality, skill impact."""
+"""Evaluation logic: credit accuracy and skill impact."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from muscle_memory.db import Store
-from muscle_memory.models import Outcome
-from muscle_memory.outcomes import infer_outcome
+from muscle_memory.models import Episode, Outcome
 
 console = Console()
 
 
 # ------------------------------------------------------------------
-# Outcome evaluation
+# Credit evaluation — are skill credits deserved?
 # ------------------------------------------------------------------
 
 
 @dataclass
-class OutcomeEvalResult:
+class SkillCreditStats:
+    skill_id: str
+    activation: str
     total: int = 0
-    agreement: int = 0
-    matrix: dict[str, dict[str, int]] = field(default_factory=dict)
-    disagreements: list[dict] = field(default_factory=list)
+    deserved: int = 0
+    undeserved: int = 0
 
     @property
-    def agreement_rate(self) -> float:
-        return self.agreement / self.total if self.total else 0.0
-
-    def precision(self, cls: str) -> float:
-        predicted = sum(self.matrix.get(cls, {}).values())
-        if not predicted:
-            return 0.0
-        return self.matrix.get(cls, {}).get(cls, 0) / predicted
-
-    def recall(self, cls: str) -> float:
-        actual = sum(row.get(cls, 0) for row in self.matrix.values())
-        if not actual:
-            return 0.0
-        return self.matrix.get(cls, {}).get(cls, 0) / actual
+    def precision(self) -> float:
+        return self.deserved / self.total if self.total else 0.0
 
 
-def evaluate_outcomes(store: Store) -> OutcomeEvalResult:
-    """Compare heuristic outcomes against human labels."""
-    labels = store.get_eval_labels("outcome")
+@dataclass
+class CreditEvalResult:
+    total: int = 0
+    deserved: int = 0
+    undeserved: int = 0
+    per_skill: list[SkillCreditStats] = field(default_factory=list)
+
+    @property
+    def precision(self) -> float:
+        return self.deserved / self.total if self.total else 0.0
+
+
+def evaluate_credits(store: Store) -> CreditEvalResult:
+    """Evaluate whether skill credits were deserved based on human labels."""
+    labels = store.get_eval_labels("credit")
     if not labels:
-        return OutcomeEvalResult()
+        return CreditEvalResult()
 
-    classes = ["success", "failure", "unknown"]
-    matrix: dict[str, dict[str, int]] = {
-        pred: {actual: 0 for actual in classes} for pred in classes
-    }
-    disagreements: list[dict] = []
-    agreement = 0
-    evaluated = 0
+    total = 0
+    deserved = 0
+    undeserved = 0
+    by_skill: dict[str, SkillCreditStats] = {}
 
     for label in labels:
-        ep = store.get_episode(label.episode_id)
-        if ep is None:
+        if label.human_outcome not in ("deserved", "undeserved"):
             continue
-        evaluated += 1
+        total += 1
 
-        # Re-run heuristic with current code
-        signal = infer_outcome(
-            ep.trajectory,
-            user_followup=ep.trajectory.user_followup,
-            any_skills_activated=bool(ep.activated_skills),
-        )
-        predicted = signal.outcome.value
-        actual = label.human_outcome
-
-        if predicted in matrix and actual in matrix[predicted]:
-            matrix[predicted][actual] += 1
-
-        if predicted == actual:
-            agreement += 1
+        is_deserved = label.human_outcome == "deserved"
+        if is_deserved:
+            deserved += 1
         else:
-            disagreements.append({
-                "episode_id": label.episode_id,
-                "prompt": ep.user_prompt[:60],
-                "predicted": predicted,
-                "actual": actual,
-                "reasons": signal.reasons,
-            })
+            undeserved += 1
 
-    return OutcomeEvalResult(
-        total=evaluated,
-        agreement=agreement,
-        matrix=matrix,
-        disagreements=disagreements,
+        # Per-skill tracking
+        sid = label.skill_id
+        if sid and sid not in by_skill:
+            skill = store.get_skill(sid)
+            activation = skill.activation[:60] if skill else "(deleted)"
+            by_skill[sid] = SkillCreditStats(skill_id=sid, activation=activation)
+        if sid:
+            by_skill[sid].total += 1
+            if is_deserved:
+                by_skill[sid].deserved += 1
+            else:
+                by_skill[sid].undeserved += 1
+
+    per_skill = sorted(by_skill.values(), key=lambda s: s.precision)
+    return CreditEvalResult(
+        total=total,
+        deserved=deserved,
+        undeserved=undeserved,
+        per_skill=per_skill,
     )
 
 
-def render_outcome_eval(result: OutcomeEvalResult) -> None:
-    """Print outcome eval report."""
+def render_credit_eval(result: CreditEvalResult) -> None:
+    """Print credit eval report."""
     if result.total == 0:
         console.print(
-            "[dim]No outcome labels yet. Run [bold]mm eval label --outcome[/bold] first.[/dim]"
+            "[dim]No credit labels yet. Run [bold]mm eval label[/bold] first.[/dim]"
         )
         return
 
-    console.print(f"[bold]Outcome Evaluation[/bold] ({result.total} labeled episodes)\n")
+    console.print(f"[bold]Credit Evaluation[/bold] ({result.total} labeled)\n")
 
-    # Confusion matrix
-    classes = ["success", "failure", "unknown"]
-    table = Table(title="Confusion Matrix (rows=predicted, cols=actual)")
-    table.add_column("", width=12)
-    for cls in classes:
-        table.add_column(cls, justify="right", width=10)
-
-    for pred in classes:
-        row_values = []
-        for actual in classes:
-            count = result.matrix.get(pred, {}).get(actual, 0)
-            if pred == actual and count > 0:
-                row_values.append(f"[green]{count}[/green]")
-            elif pred != actual and count > 0:
-                row_values.append(f"[red]{count}[/red]")
-            else:
-                row_values.append(f"[dim]{count}[/dim]")
-        table.add_row(pred, *row_values)
-    console.print(table)
-
-    # Metrics
+    # Overall precision
+    color = "green" if result.precision >= 0.8 else "yellow" if result.precision >= 0.6 else "red"
     console.print(
-        f"\n  [bold]Agreement:[/bold]          {result.agreement_rate:.1%}"
-        f"  ({result.agreement}/{result.total})"
+        f"  [bold]Credit precision:[/bold] [{color}]{result.precision:.1%}[/{color}]"
+        f"  ({result.deserved} deserved, {result.undeserved} undeserved)"
     )
-    for cls in ["success", "failure"]:
-        p = result.precision(cls)
-        r = result.recall(cls)
+
+    if result.precision < 0.8:
         console.print(
-            f"  [bold]Precision({cls}):[/bold]  {p:.3f}"
-            f"    [bold]Recall({cls}):[/bold]  {r:.3f}"
+            f"\n  [yellow]The heuristic is giving undeserved credit "
+            f"{result.undeserved}/{result.total} times.[/yellow]\n"
+            f"  [dim]This inflates scores for skills that didn't actually help.[/dim]"
         )
 
-    # False positive rate (predicted success, actually failure)
-    fp = result.matrix.get("success", {}).get("failure", 0)
-    total_pred_success = sum(result.matrix.get("success", {}).values())
-    fp_rate = fp / total_pred_success if total_pred_success else 0.0
-    console.print(f"  [bold]False positive rate:[/bold] {fp_rate:.3f}  ({fp} episodes)")
+    # Per-skill breakdown
+    if result.per_skill:
+        console.print(f"\n[bold]Per-Skill Credit Precision[/bold]")
 
-    # Disagreements
-    if result.disagreements:
-        console.print(f"\n[bold]Disagreements ({len(result.disagreements)}):[/bold]")
-        for d in result.disagreements[:10]:
-            console.print(
-                f"  [dim]{d['episode_id'][:8]}[/dim]  "
-                f"heuristic=[yellow]{d['predicted']}[/yellow]  "
-                f"human=[cyan]{d['actual']}[/cyan]  "
-                f"\"{d['prompt']}\""
+        table = Table(box=None, show_header=True, padding=(0, 1))
+        table.add_column("id", style="dim", width=10)
+        table.add_column("precision", justify="right", width=10)
+        table.add_column("labels", justify="right", width=8)
+        table.add_column("activation", width=50)
+
+        for s in result.per_skill:
+            p = s.precision
+            color = "green" if p >= 0.8 else "yellow" if p >= 0.5 else "red"
+            tag = ""
+            if p < 0.5 and s.total >= 3:
+                tag = " [red]INFLATED[/red]"
+            table.add_row(
+                s.skill_id[:8],
+                f"[{color}]{p:.0%}[/{color}]{tag}",
+                f"{s.deserved}/{s.total}",
+                s.activation,
             )
-        if len(result.disagreements) > 10:
-            console.print(f"  [dim]... and {len(result.disagreements) - 10} more[/dim]")
+        console.print(table)
 
 
 # ------------------------------------------------------------------
-# Impact evaluation
+# Health report — automated playbook scoring
+# ------------------------------------------------------------------
+
+
+@dataclass
+class PlaybookHealth:
+    skill_id: str
+    activation: str
+    activations: int = 0
+    avg_relevance: float = 0.0
+    avg_adherence: float = 0.0
+    correct: int = 0
+    incorrect: int = 0
+    needs_review: int = 0
+
+    @property
+    def health_pct(self) -> float:
+        if self.activations == 0:
+            return 0.0
+        return self.correct / self.activations
+
+
+@dataclass
+class HealthReport:
+    total_activations: int = 0
+    healthy_pct: float = 0.0
+    avg_relevance: float = 0.0
+    avg_adherence: float = 0.0
+    per_skill: list[PlaybookHealth] = field(default_factory=list)
+    needs_review_count: int = 0
+
+
+def evaluate_health(store: Store) -> HealthReport:
+    """Score all skill activations and produce a health report.
+
+    Runs the three automated scorers (relevance, adherence, correctness)
+    on every (episode, skill) activation pair.
+    """
+    from muscle_memory.eval.scorers import (
+        load_activation_distances,
+        score_adherence,
+        score_correctness,
+        score_relevance,
+    )
+
+    episodes = store.list_episodes(limit=10_000)
+
+    # Deduplicate by session
+    by_session: dict[str, Episode] = {}
+    for ep in episodes:
+        sid = ep.session_id or ep.id
+        existing = by_session.get(sid)
+        if existing is None or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls():
+            by_session[sid] = ep
+
+    by_skill: dict[str, PlaybookHealth] = {}
+    all_relevances: list[float] = []
+    all_adherences: list[float] = []
+    total = 0
+    healthy = 0
+    needs_review = 0
+
+    for ep in by_session.values():
+        if not ep.activated_skills:
+            continue
+
+        # Load stored distances from sidecar
+        distances = load_activation_distances(store.db_path, ep.session_id or "")
+
+        for skill_id in set(ep.activated_skills):
+            skill = store.get_skill(skill_id)
+            if skill is None:
+                continue
+
+            rel = score_relevance(
+                store, ep, skill_id,
+                stored_distance=distances.get(skill_id),
+            )
+            adh = score_adherence(skill, ep.trajectory)
+            cor = score_correctness(adh, ep.outcome)
+
+            total += 1
+            all_relevances.append(rel.score)
+            all_adherences.append(adh.score)
+
+            if rel.score >= 0.5 and adh.score >= 0.5 and cor.verdict == "correct":
+                healthy += 1
+            if cor.verdict == "needs_review":
+                needs_review += 1
+
+            if skill_id not in by_skill:
+                by_skill[skill_id] = PlaybookHealth(
+                    skill_id=skill_id,
+                    activation=skill.activation[:60],
+                )
+            ph = by_skill[skill_id]
+            ph.activations += 1
+            # Running average
+            ph.avg_relevance += (rel.score - ph.avg_relevance) / ph.activations
+            ph.avg_adherence += (adh.score - ph.avg_adherence) / ph.activations
+            if cor.verdict == "correct":
+                ph.correct += 1
+            elif cor.verdict == "incorrect":
+                ph.incorrect += 1
+            else:
+                ph.needs_review += 1
+
+    per_skill = sorted(by_skill.values(), key=lambda p: p.health_pct, reverse=True)
+
+    return HealthReport(
+        total_activations=total,
+        healthy_pct=healthy / total if total else 0.0,
+        avg_relevance=sum(all_relevances) / len(all_relevances) if all_relevances else 0.0,
+        avg_adherence=sum(all_adherences) / len(all_adherences) if all_adherences else 0.0,
+        per_skill=per_skill,
+        needs_review_count=needs_review,
+    )
+
+
+def render_health_report(report: HealthReport) -> None:
+    """Print the health dashboard."""
+    if report.total_activations == 0:
+        console.print("[dim]No skill activations found. Run some sessions first.[/dim]")
+        return
+
+    console.print(f"[bold]Playbook Health[/bold] ({report.total_activations} activations)\n")
+
+    # Overall metrics
+    h_color = "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
+    console.print(
+        f"  [bold]Healthy:[/bold] [{h_color}]{report.healthy_pct:.0%}[/{h_color}]"
+        f"  [bold]Avg relevance:[/bold] {report.avg_relevance:.2f}"
+        f"  [bold]Avg adherence:[/bold] {report.avg_adherence:.2f}"
+    )
+    if report.needs_review_count:
+        console.print(
+            f"  [yellow]{report.needs_review_count} activations need human review[/yellow]"
+            f" (run [bold]mm eval label[/bold])"
+        )
+
+    # Per-skill table
+    if report.per_skill:
+        console.print()
+        table = Table(title="Per-Skill Health")
+        table.add_column("id", style="dim", width=10)
+        table.add_column("activation", width=40)
+        table.add_column("acts", justify="right", width=5)
+        table.add_column("relevance", justify="right", width=10)
+        table.add_column("adherence", justify="right", width=10)
+        table.add_column("correct", justify="right", width=10)
+        table.add_column("status", width=12)
+
+        for ph in report.per_skill:
+            r_color = "green" if ph.avg_relevance >= 0.5 else "red"
+            a_color = "green" if ph.avg_adherence >= 0.5 else "red"
+            h_pct = ph.health_pct
+
+            if h_pct >= 0.7:
+                status = "[green]healthy[/green]"
+            elif ph.incorrect > 0:
+                status = "[red]bad steps[/red]"
+            elif ph.avg_relevance < 0.3:
+                status = "[red]wrong match[/red]"
+            elif ph.avg_adherence < 0.3:
+                status = "[yellow]ignored[/yellow]"
+            elif ph.needs_review > 0:
+                status = "[yellow]review[/yellow]"
+            else:
+                status = "[dim]ok[/dim]"
+
+            table.add_row(
+                ph.skill_id[:8],
+                ph.activation,
+                str(ph.activations),
+                f"[{r_color}]{ph.avg_relevance:.2f}[/{r_color}]",
+                f"[{a_color}]{ph.avg_adherence:.2f}[/{a_color}]",
+                f"{ph.correct}/{ph.activations}",
+                status,
+            )
+        console.print(table)
+
+
+# ------------------------------------------------------------------
+# Impact evaluation — do skills help overall?
 # ------------------------------------------------------------------
 
 
@@ -229,7 +390,6 @@ def evaluate_impact(store: Store) -> ImpactEvalResult:
 
         if ep.activated_skills:
             grp = with_skills
-            # Track per-skill
             for sid in ep.activated_skills:
                 if sid not in skill_episodes:
                     skill = store.get_skill(sid)
@@ -304,13 +464,12 @@ def render_impact_eval(result: ImpactEvalResult) -> None:
 
     if ws.count < 10 or wo.count < 10:
         console.print(
-            "\n[yellow]Warning: small sample size — interpret with caution.[/yellow]"
+            "\n[yellow]Warning: small sample size.[/yellow]"
         )
 
-    # Per-skill breakdown
     if result.per_skill:
         baseline = wo.success_rate
-        console.print(f"\n[bold]Per-Skill Impact[/bold] (≥3 activations, baseline={baseline:.1%})")
+        console.print(f"\n[bold]Per-Skill Impact[/bold] (>=3 activations, baseline={baseline:.1%})")
 
         sk_table = Table(box=None, show_header=True, padding=(0, 1))
         sk_table.add_column("id", style="dim", width=10)

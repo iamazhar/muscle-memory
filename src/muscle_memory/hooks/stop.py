@@ -214,13 +214,24 @@ def _flatten_content(content: Any) -> str:
 
 
 def _load_activations(cfg: Config, session_id: str) -> list[str]:
+    """Load activated skill IDs from sidecar file.
+
+    Handles both old format (list of strings) and new format
+    (list of dicts with skill_id + distance).
+    """
     if not session_id:
         return []
     sidecar = cfg.db_path.parent / "mm.activations" / f"{session_id}.json"
     if not sidecar.exists():
         return []
     try:
-        result: list[str] = json.loads(sidecar.read_text())
+        raw = json.loads(sidecar.read_text())
+        result: list[str] = []
+        for entry in raw:
+            if isinstance(entry, str):
+                result.append(entry)
+            elif isinstance(entry, dict) and "skill_id" in entry:
+                result.append(entry["skill_id"])
         return result
     except Exception:
         return []

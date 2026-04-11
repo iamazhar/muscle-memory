@@ -152,7 +152,7 @@ class Store:
                 );
 
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_labels_unique
-                    ON eval_labels(label_type, episode_id);
+                    ON eval_labels(label_type, episode_id, skill_id);
                 """
             )
 
@@ -466,6 +466,20 @@ class Store:
             results = [(_row_to_skill(r), by_id[r["id"]]) for r in skill_rows]
             results.sort(key=lambda t: t[1])
             return results[:top_k]
+        finally:
+            conn.close()
+
+    def get_skill_embedding(self, skill_id: str) -> list[float] | None:
+        """Load the stored embedding vector for a single skill."""
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT embedding FROM skill_embeddings WHERE skill_id = ?",
+                (skill_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return json.loads(row["embedding"])
         finally:
             conn.close()
 
