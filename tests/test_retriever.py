@@ -37,11 +37,13 @@ def test_retriever_finds_closest_skill(tmp_db: Store, sample_config: Config) -> 
         activation="pytest fails with ModuleNotFoundError",
         execution="use tools/test-runner.sh",
         termination="tests pass",
+        maturity=Maturity.LIVE,
     )
     b = Skill(
         activation="deploy to production requires approval",
         execution="ask in #deploys channel first",
         termination="approved",
+        maturity=Maturity.LIVE,
     )
     tmp_db.add_skill(a, embedding=embedder.embed_one(a.activation))
     tmp_db.add_skill(b, embedding=embedder.embed_one(b.activation))
@@ -65,7 +67,12 @@ def test_retriever_skips_empty_query(tmp_db: Store, sample_config: Config) -> No
 
 def test_mark_activated_updates_invocations(tmp_db: Store, sample_config: Config) -> None:
     embedder = FakeEmbedder()
-    s = Skill(activation="pytest tests fail", execution="e", termination="t")
+    s = Skill(
+        activation="pytest tests fail",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
     tmp_db.add_skill(s, embedding=embedder.embed_one(s.activation))
 
     retriever = Retriever(tmp_db, embedder, sample_config)
@@ -80,12 +87,49 @@ def test_mark_activated_updates_invocations(tmp_db: Store, sample_config: Config
     assert reloaded.last_used_at is not None
 
 
+def test_retriever_filters_obviously_unrelated_prompt(tmp_db: Store, sample_config: Config) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When the user asks about Kubernetes CrashLoopBackOff in a production deployment",
+        execution="inspect pods",
+        termination="root cause found",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    hits = retriever.retrieve("What is the capital of France?")
+    assert hits == []
+
+
+def test_retriever_does_not_activate_quarantined_candidate(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When pytest fails with ModuleNotFoundError",
+        execution="1. inspect the import path\n2. run the test runner",
+        termination="tests pass",
+        maturity=Maturity.CANDIDATE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    hits = retriever.retrieve("pytest fails with ModuleNotFoundError")
+    assert hits == []
+
+
 def test_proven_skill_ranks_above_candidate_at_same_distance(
     tmp_db: Store, sample_config: Config
 ) -> None:
     embedder = FakeEmbedder()
 
-    a = Skill(activation="deploy staging", execution="e", termination="t")
+    a = Skill(
+        activation="deploy staging",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
     b = Skill(
         activation="deploy staging",
         execution="e",

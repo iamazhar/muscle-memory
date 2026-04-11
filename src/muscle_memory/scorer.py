@@ -59,7 +59,7 @@ class Scorer:
           1. A skill with >= `min_invocations_before_prune` invocations
              and score <= 0.2 is removed (it's been tried and it flops).
           2. If the pool still exceeds `max_skills`, remove the lowest-
-             scoring CANDIDATE skills first, then ESTABLISHED, until
+             scoring CANDIDATE skills first, then LIVE, until
              under capacity.
         """
         removed: list[str] = []
@@ -75,7 +75,7 @@ class Scorer:
             # fetch candidates cheapest first
             pool = self.store.list_skills(scope=Scope.PROJECT, maturity=Maturity.CANDIDATE)
             if not pool:
-                pool = self.store.list_skills(scope=Scope.PROJECT, maturity=Maturity.ESTABLISHED)
+                pool = self.store.list_skills(scope=Scope.PROJECT, maturity=Maturity.LIVE)
             if not pool:
                 break
             pool.sort(key=lambda s: (s.score, s.invocations))

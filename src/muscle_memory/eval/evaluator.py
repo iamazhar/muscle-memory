@@ -90,9 +90,7 @@ def evaluate_credits(store: Store) -> CreditEvalResult:
 def render_credit_eval(result: CreditEvalResult) -> None:
     """Print credit eval report."""
     if result.total == 0:
-        console.print(
-            "[dim]No credit labels yet. Run [bold]mm eval label[/bold] first.[/dim]"
-        )
+        console.print("[dim]No credit labels yet. Run [bold]mm eval label[/bold] first.[/dim]")
         return
 
     console.print(f"[bold]Credit Evaluation[/bold] ({result.total} labeled)\n")
@@ -113,7 +111,7 @@ def render_credit_eval(result: CreditEvalResult) -> None:
 
     # Per-skill breakdown
     if result.per_skill:
-        console.print(f"\n[bold]Per-Skill Credit Precision[/bold]")
+        console.print("\n[bold]Per-Skill Credit Precision[/bold]")
 
         table = Table(box=None, show_header=True, padding=(0, 1))
         table.add_column("id", style="dim", width=10)
@@ -204,7 +202,10 @@ def evaluate_health(store: Store) -> HealthReport:
     for ep in episodes:
         sid = ep.session_id or ep.id
         existing = by_session.get(sid)
-        if existing is None or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls():
+        if (
+            existing is None
+            or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls()
+        ):
             by_session[sid] = ep
 
     by_skill: dict[str, PlaybookHealth] = {}
@@ -232,7 +233,9 @@ def evaluate_health(store: Store) -> HealthReport:
                 continue
 
             rel = score_relevance(
-                store, ep, skill_id,
+                store,
+                ep,
+                skill_id,
                 stored_distance=distances.get(skill_id),
             )
             adh = score_adherence(skill, ep.trajectory)
@@ -317,11 +320,7 @@ def render_health_report(report: HealthReport) -> None:
         else 0
     )
 
-    exec_pct = (
-        report.steps_executed / report.steps_possible * 100
-        if report.steps_possible
-        else 0
-    )
+    exec_pct = report.steps_executed / report.steps_possible * 100 if report.steps_possible else 0
     hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
 
     # Hero panel — tokens only, no fake time estimates
@@ -346,8 +345,7 @@ def render_health_report(report: HealthReport) -> None:
 
     # Per-skill efficiency breakdown
     skills_with_data = [
-        ph for ph in report.per_skill
-        if ph.tokens_exploration > 0 and ph.tokens_deterministic > 0
+        ph for ph in report.per_skill if ph.tokens_exploration > 0 and ph.tokens_deterministic > 0
     ]
 
     if skills_with_data:
@@ -364,13 +362,14 @@ def render_health_report(report: HealthReport) -> None:
             # Bar length represents the ratio — longer = more efficient
             bar = _bar(int(r * 100), int(max_ratio * 100), r_color, width=20)
             console.print(
-                f"  [{r_color} bold]{ratio_str:>5}[/{r_color} bold]  "
-                f"{bar}  {ph.activation[:50]}"
+                f"  [{r_color} bold]{ratio_str:>5}[/{r_color} bold]  {bar}  {ph.activation[:50]}"
             )
 
     # Summary stats
     console.print()
-    h_color = "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
+    h_color = (
+        "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
+    )
     console.print(
         f"  {report.steps_executed}/{report.steps_possible} steps followed"
         f"  ({report.avg_adherence:.0%} adherence)"
@@ -536,9 +535,7 @@ def render_impact_eval(result: ImpactEvalResult) -> None:
     console.print(table)
 
     if ws.count < 10 or wo.count < 10:
-        console.print(
-            "\n[yellow]Warning: small sample size.[/yellow]"
-        )
+        console.print("\n[yellow]Warning: small sample size.[/yellow]")
 
     if result.per_skill:
         baseline = wo.success_rate

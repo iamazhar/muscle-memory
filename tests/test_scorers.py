@@ -10,12 +10,11 @@ import pytest
 from muscle_memory.db import Store
 from muscle_memory.eval.scorers import (
     AdherenceScore,
-    RelevanceScore,
+    _extract_step_tokens,
+    _parse_execution_steps,
     score_adherence,
     score_correctness,
     score_relevance,
-    _extract_step_tokens,
-    _parse_execution_steps,
 )
 from muscle_memory.models import Episode, Outcome, Skill, ToolCall, Trajectory
 
@@ -61,11 +60,15 @@ class TestRelevanceScorer:
         assert result.score == pytest.approx(0.75)
 
     def test_zero_distance_is_perfect(self, store):
-        result = score_relevance(store, Episode(user_prompt="x", trajectory=Trajectory()), "id", stored_distance=0.0)
+        result = score_relevance(
+            store, Episode(user_prompt="x", trajectory=Trajectory()), "id", stored_distance=0.0
+        )
         assert result.score == 1.0
 
     def test_max_distance_is_zero(self, store):
-        result = score_relevance(store, Episode(user_prompt="x", trajectory=Trajectory()), "id", stored_distance=2.0)
+        result = score_relevance(
+            store, Episode(user_prompt="x", trajectory=Trajectory()), "id", stored_distance=2.0
+        )
         assert result.score == 0.0
 
     def test_no_embedder_returns_zero(self, store):
@@ -119,10 +122,12 @@ class TestExtractTokens:
 class TestAdherenceScorer:
     def test_all_steps_matched(self):
         skill = _make_skill(execution="1. Run `pytest`\n2. Run `git commit`")
-        traj = _make_trajectory([
-            ("pytest tests/", "5 passed in 1.2s"),
-            ("git commit -m 'fix'", "[main abc1234] fix"),
-        ])
+        traj = _make_trajectory(
+            [
+                ("pytest tests/", "5 passed in 1.2s"),
+                ("git commit -m 'fix'", "[main abc1234] fix"),
+            ]
+        )
         result = score_adherence(skill, traj)
         assert result.score == 1.0
         assert result.total_steps == 2
@@ -137,10 +142,12 @@ class TestAdherenceScorer:
 
     def test_partial_match(self):
         skill = _make_skill(execution="1. Run `pytest`\n2. Run `git commit`\n3. Run `git push`")
-        traj = _make_trajectory([
-            ("pytest", "5 passed"),
-            ("ls", "ok"),
-        ])
+        traj = _make_trajectory(
+            [
+                ("pytest", "5 passed"),
+                ("ls", "ok"),
+            ]
+        )
         result = score_adherence(skill, traj)
         assert abs(result.score - 1 / 3) < 0.01
 
@@ -154,9 +161,11 @@ class TestAdherenceScorer:
 
     def test_edit_tool_detected(self):
         skill = _make_skill(execution="1. Edit `config.py` to update the setting")
-        traj = Trajectory(tool_calls=[
-            ToolCall(name="Edit", arguments={"file_path": "/path/to/config.py"}, result="ok"),
-        ])
+        traj = Trajectory(
+            tool_calls=[
+                ToolCall(name="Edit", arguments={"file_path": "/path/to/config.py"}, result="ok"),
+            ]
+        )
         result = score_adherence(skill, traj)
         assert result.score == 1.0
 
@@ -166,7 +175,9 @@ class TestAdherenceScorer:
 
 class TestCorrectnessScorer:
     def test_followed_and_succeeded(self):
-        adh = AdherenceScore(score=0.8, total_steps=3, matched_steps=["a", "b"], unmatched_steps=["c"])
+        adh = AdherenceScore(
+            score=0.8, total_steps=3, matched_steps=["a", "b"], unmatched_steps=["c"]
+        )
         result = score_correctness(adh, Outcome.SUCCESS)
         assert result.verdict == "correct"
         assert result.confidence == "auto"

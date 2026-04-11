@@ -26,7 +26,9 @@ Session 50: CLAUDE.md is 4000 lines, half stale, nobody reads it
 
 ```
 Session 1:  Figure out the test runner (15 min) → extractor creates a Skill
-Session 2:  "run the tests" → Skill activates automatically, zero rediscovery
+Session 2:  extractor stores it as a candidate, not yet trusted
+Session 3:  same pattern shows up again → promoted to "live"
+Session 4:  "run the tests" → Skill activates automatically, zero rediscovery
 Session 5:  Skill execution had a subtle bug → PPO refiner rewrites just that step
 Session 20: Skill has been invoked 18x, 17 successes → promoted to "proven"
 Session 50: Unused skills auto-pruned, active ones keep improving
@@ -68,16 +70,28 @@ mm list
 mm show <skill-id>
 mm stats
 
+# review quarantined candidates before they become retrievable
+mm review list
+mm review approve <skill-id>
+mm review reject <skill-id>
+
 # self-improvement
 mm refine <skill-id>       # rewrite a skill via semantic-gradient PPO
 mm refine --auto           # sweep all skills meeting auto-refine criteria
 mm refine <id> --rollback  # undo the most recent refinement
 
 # maintenance
-mm dedup                   # collapse near-duplicate skills
-mm rescore                 # re-run the outcome heuristic on stored episodes
-mm prune                   # delete demonstrably bad skills
+mm maint dedup             # collapse near-duplicate skills
+mm maint rescore           # re-run the outcome heuristic on stored episodes
+mm maint prune             # delete demonstrably bad skills
 ```
+
+## Try The Demo
+
+If you want a realistic place to dogfood the product immediately, use the in-repo
+[OrbitOps demo](demo/orbitops/README.md). It is a tiny fictional SaaS app with a
+marketing page, an interactive dashboard, a local smoke-check command, and its own
+project-local `.claude` anchor so skills stay isolated from the repo root.
 
 ## Authentication
 
@@ -124,6 +138,17 @@ and `export OPENAI_API_KEY=sk-...`.
 
 Inspired directly by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869). The full three-stage refinement loop (semantic gradient, LLM rewrite, PPO-Gate trust-region verification) uses an LLM-judge proxy over stored trajectories. See the [CHANGELOG](CHANGELOG.md) for the full story.
 
+## Skill lifecycle
+
+Newly extracted skills do not go straight into live retrieval.
+
+- `candidate`: quarantined; stored for review or repeated evidence, but never auto-injected
+- `live`: trusted enough to retrieve automatically
+- `proven`: repeatedly successful and strongly trusted
+
+Candidates can be promoted automatically when the same procedure is learned from
+multiple distinct successful episodes, or manually via `mm review approve`.
+
 ## Skill anatomy
 
 Each Skill is three editable text fields:
@@ -143,7 +168,9 @@ No DSL. No code templates. Plain English that the agent reads and executes with 
 
 - [CHANGELOG.md](CHANGELOG.md) — full version history
 - [docs/authentication.md](docs/authentication.md) — detailed auth + provider setup
+- [docs/demo.md](docs/demo.md) — run the OrbitOps demo app and dogfood repeated workflows
 - [docs/performance.md](docs/performance.md) — measured latency + cost numbers, deferred optimizations
+- [docs/quality.md](docs/quality.md) — skill admission policy and anti-junk quality gates
 - [docs/testing.md](docs/testing.md) — test layers + the `claude -p` gotcha
 - [docs/development.md](docs/development.md) — contributor setup, including the macOS uv `.pth` hidden-flag workaround
 

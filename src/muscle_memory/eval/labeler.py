@@ -20,7 +20,7 @@ from rich.rule import Rule
 
 from muscle_memory.db import Store
 from muscle_memory.eval import EvalLabel
-from muscle_memory.models import Episode, Outcome, Skill
+from muscle_memory.models import Episode, Skill
 
 console = Console()
 
@@ -72,7 +72,10 @@ def _get_unlabeled_credits(store: Store, limit: int = 30) -> list[CreditEvent]:
     for ep in all_unlabeled:
         sid = ep.session_id or ep.id
         existing = by_session.get(sid)
-        if existing is None or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls():
+        if (
+            existing is None
+            or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls()
+        ):
             by_session[sid] = ep
 
     # Expand to credit events: one per (episode, skill)
@@ -93,11 +96,13 @@ def _get_unlabeled_credits(store: Store, limit: int = 30) -> list[CreditEvent]:
             skill = store.get_skill(sid)
             if skill is None:
                 continue
-            events.append(CreditEvent(
-                episode=ep,
-                skill=skill,
-                heuristic_outcome=ep.outcome.value,
-            ))
+            events.append(
+                CreditEvent(
+                    episode=ep,
+                    skill=skill,
+                    heuristic_outcome=ep.outcome.value,
+                )
+            )
 
     # Sort: UNKNOWN first (most valuable to label), then FAILURE, then SUCCESS
     priority = {"unknown": 0, "failure": 1, "success": 2}
@@ -137,10 +142,14 @@ def label_credits_interactive(store: Store, *, limit: int = 10) -> int:
 
         while True:
             try:
-                key = console.input(
-                    f"\n  Skill got a [bold]{event.heuristic_outcome}[/bold] point. "
-                    "Deserved? [green]y[/green]/[red]n[/red]/[bold]?[/bold]/[bold]q[/bold]: "
-                ).strip().lower()
+                key = (
+                    console.input(
+                        f"\n  Skill got a [bold]{event.heuristic_outcome}[/bold] point. "
+                        "Deserved? [green]y[/green]/[red]n[/red]/[bold]?[/bold]/[bold]q[/bold]: "
+                    )
+                    .strip()
+                    .lower()
+                )
             except (EOFError, KeyboardInterrupt):
                 console.print(f"\n[dim]Labeled {added} credits.[/dim]")
                 return added
@@ -153,14 +162,16 @@ def label_credits_interactive(store: Store, *, limit: int = 10) -> int:
                 break
             if key in ("y", "n"):
                 human = "deserved" if key == "y" else "undeserved"
-                store.add_eval_label(EvalLabel(
-                    id=uuid.uuid4().hex[:16],
-                    label_type="credit",
-                    episode_id=event.episode.id,
-                    skill_id=event.skill.id,
-                    heuristic_outcome=event.heuristic_outcome,
-                    human_outcome=human,
-                ))
+                store.add_eval_label(
+                    EvalLabel(
+                        id=uuid.uuid4().hex[:16],
+                        label_type="credit",
+                        episode_id=event.episode.id,
+                        skill_id=event.skill.id,
+                        heuristic_outcome=event.heuristic_outcome,
+                        human_outcome=human,
+                    )
+                )
                 added += 1
                 color = "green" if key == "y" else "red"
                 console.print(f"  [{color}]{human}[/{color}]")
@@ -177,7 +188,7 @@ def label_credits_interactive(store: Store, *, limit: int = 10) -> int:
 
 def _render_credit(event: CreditEvent, idx: int, total: int) -> None:
     """Render a credit event for labeling — compact, scannable."""
-    from muscle_memory.cli import _format_outcome, _format_score, _relative_time
+    from muscle_memory.cli import _format_outcome, _relative_time
 
     ep = event.episode
     skill = event.skill
@@ -201,8 +212,7 @@ def _render_credit(event: CreditEvent, idx: int, total: int) -> None:
     when = _relative_time(ep.started_at)
 
     console.print(
-        f"  [dim]Session ({when}):[/dim] {request}\n"
-        f"  [dim]Session outcome:[/dim] {outcome_str}"
+        f"  [dim]Session ({when}):[/dim] {request}\n  [dim]Session outcome:[/dim] {outcome_str}"
     )
 
 

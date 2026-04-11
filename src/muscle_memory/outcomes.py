@@ -137,9 +137,7 @@ def infer_outcome(
         if test_result is not None:
             if test_result.failed == 0 and test_result.passed > 0:
                 score += 4.0
-                reasons.append(
-                    f"{test_result.runner}: {test_result.passed} passed, 0 failed"
-                )
+                reasons.append(f"{test_result.runner}: {test_result.passed} passed, 0 failed")
             elif test_result.failed > 0 and test_result.passed > 0:
                 score += 1.0
                 reasons.append(
@@ -148,9 +146,7 @@ def infer_outcome(
                 )
             elif test_result.failed > 0:
                 score -= 3.0
-                reasons.append(
-                    f"{test_result.runner}: 0 passed, {test_result.failed} failed"
-                )
+                reasons.append(f"{test_result.runner}: 0 passed, {test_result.failed} failed")
         else:
             # Fallback to keyword matching.
             has_success = _contains_any(last_text, _SUCCESS_SUBSTRINGS)

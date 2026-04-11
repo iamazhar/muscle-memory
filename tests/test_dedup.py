@@ -76,6 +76,40 @@ def test_add_skill_with_dedup_rejects_close_neighbor(tmp_db: Store) -> None:
     assert tmp_db.count_skills() == 1
 
 
+def test_add_skill_with_dedup_merges_evidence_and_promotes_candidate(tmp_db: Store) -> None:
+    embedder = FakeEmbedder(
+        {
+            "old skill": [0.1, 0.2, 0.3, 0.4],
+            "near dup": [0.11, 0.21, 0.31, 0.41],
+        }
+    )
+    first = _make_skill(
+        "old skill",
+        maturity=Maturity.CANDIDATE,
+        source_episode_ids=["ep1"],
+        tool_hints=["Bash"],
+        tags=["python"],
+    )
+    tmp_db.add_skill(first, embedding=embedder.embed_one("old skill"))
+
+    second = _make_skill(
+        "near dup",
+        source_episode_ids=["ep2"],
+        tool_hints=["Edit"],
+        tags=["testing"],
+    )
+    added, existing = add_skill_with_dedup(tmp_db, embedder, second)
+    assert added is False
+    assert existing is not None
+
+    merged = tmp_db.get_skill(first.id)
+    assert merged is not None
+    assert merged.maturity is Maturity.LIVE
+    assert merged.source_episode_ids == ["ep1", "ep2"]
+    assert merged.tool_hints == ["Bash", "Edit"]
+    assert merged.tags == ["python", "testing"]
+
+
 def test_add_skill_with_dedup_allows_distant_skill(tmp_db: Store) -> None:
     embedder = FakeEmbedder(
         {

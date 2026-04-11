@@ -100,6 +100,7 @@ def seeded_store(scratch_config: Config, deterministic_embedder: DeterministicEm
         execution="1. Run `ls -lO`\n2. Run `chflags nohidden`\n3. Verify with python3 import",
         termination="import succeeds",
         tags=["macos", "test-seed"],
+        maturity=Maturity.LIVE,
     )
     store.add_skill(skill, embedding=deterministic_embedder.embed_one(skill.activation))
     return store
@@ -333,6 +334,39 @@ class TestUserPromptHook:
         assert "executing playbook" in ctx
         assert "EXECUTE" in ctx  # imperative framing
 
+    def test_same_session_does_not_double_count_invocation(
+        self, seeded_store: Store, project_dir: Path
+    ) -> None:
+        cfg = Config(
+            db_path=seeded_store.db_path,
+            scope=Scope.PROJECT,
+            project_root=project_dir,
+            embedding_dims=16,
+        )
+        with (
+            patch(
+                "muscle_memory.hooks.user_prompt.make_embedder",
+                return_value=DeterministicEmbedder(),
+            ),
+            patch("muscle_memory.hooks.user_prompt.Config.load", return_value=cfg),
+        ):
+            payload = {
+                "session_id": "test-sess-repeat",
+                "cwd": str(project_dir),
+                "prompt": "hidden .pth file problem on mac",
+            }
+            rc1, out1 = self._run_hook_with_stdin(payload, seeded_store.db_path)
+            rc2, out2 = self._run_hook_with_stdin(payload, seeded_store.db_path)
+
+        assert rc1 == 0
+        assert rc2 == 0
+        assert "<muscle_memory>" in out1
+        assert "<muscle_memory>" in out2
+
+        reloaded = seeded_store.get_skill("seedtest0001")
+        assert reloaded is not None
+        assert reloaded.invocations == 1
+
 
 # ----------------------------------------------------------------------
 # Scoring loop: outcome inference + skill credit
@@ -407,7 +441,7 @@ class TestScoringLoop:
         assert reloaded is not None
         assert reloaded.failures == 1
 
-    def test_maturity_promotion_requires_3_successes(self, tmp_db: Store) -> None:
+    def test_maturity_promotion_requires_2_successes(self, tmp_db: Store) -> None:
         skill = Skill(
             activation="candidate skill under test for maturity",
             execution="do it",
@@ -415,14 +449,14 @@ class TestScoringLoop:
         )
         tmp_db.add_skill(skill, embedding=[0.1, 0.2, 0.3, 0.4])
 
-        # Simulate 3 successful invocations
-        for _ in range(3):
+        # Simulate 2 successful invocations
+        for _ in range(2):
             skill.invocations += 1
             skill.successes += 1
             skill.recompute_score()
             skill.recompute_maturity()
 
-        assert skill.maturity is Maturity.ESTABLISHED
+        assert skill.maturity is Maturity.LIVE
 
         # 10+ successes → proven
         skill.invocations = 10

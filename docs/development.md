@@ -21,7 +21,7 @@ Or, if you want the installed-tool experience end-to-end:
 uv tool uninstall muscle-memory 2>/dev/null || true
 uv cache clean muscle-memory 2>/dev/null || true
 uv tool install --from . muscle-memory
-mm version
+mm --version
 ```
 
 ## Running the CLI during development
@@ -35,6 +35,19 @@ Two options:
 # option 2: via PYTHONPATH
 PYTHONPATH=src python -m muscle_memory list
 ```
+
+## Publishing a release
+
+1. Update the version in `pyproject.toml` and `src/muscle_memory/__init__.py`.
+2. Add a matching `## [x.y.z]` section to `CHANGELOG.md`.
+3. In GitHub Actions, run the `Release` workflow and pass that same version.
+
+The workflow validates version consistency, runs the test suite, builds the
+wheel and sdist, extracts the matching changelog section as release notes,
+pushes tag `vX.Y.Z`, creates a GitHub release, and can publish to PyPI.
+
+If you also maintain the separate Homebrew tap, bump the formula there after
+the GitHub release is live so `brew update` can discover the new version.
 
 ## Known gotcha: macOS + uv + Python 3.12 hidden `.pth` files
 

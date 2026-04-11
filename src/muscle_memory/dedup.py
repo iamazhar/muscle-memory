@@ -8,9 +8,10 @@ This module is the shared gate every new skill must pass through.
 
 from __future__ import annotations
 
+from muscle_memory.admission import candidate_ready_for_live
 from muscle_memory.db import Store
 from muscle_memory.embeddings import Embedder
-from muscle_memory.models import Skill
+from muscle_memory.models import Maturity, Skill
 
 # Embedding distance below which two skills are considered duplicates.
 # sqlite-vec returns L2 (euclidean) distance for FLOAT vectors.
@@ -42,6 +43,30 @@ def add_skill_with_dedup(
     embedding = embedder.embed_one(skill.activation)
     existing = find_duplicate(store, embedding)
     if existing is not None:
+        changed = False
+
+        seen_episodes = set(existing.source_episode_ids)
+        for ep_id in skill.source_episode_ids:
+            if ep_id not in seen_episodes:
+                existing.source_episode_ids.append(ep_id)
+                seen_episodes.add(ep_id)
+                changed = True
+
+        for hint in skill.tool_hints:
+            if hint not in existing.tool_hints:
+                existing.tool_hints.append(hint)
+                changed = True
+        for tag in skill.tags:
+            if tag not in existing.tags:
+                existing.tags.append(tag)
+                changed = True
+
+        if existing.maturity is Maturity.CANDIDATE and candidate_ready_for_live(existing):
+            existing.maturity = Maturity.LIVE
+            changed = True
+
+        if changed:
+            store.update_skill(existing)
         return False, existing
 
     store.add_skill(skill, embedding=embedding)

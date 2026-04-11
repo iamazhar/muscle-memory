@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (for example: 0.7.3)"
+        required: true
+        type: string
+      publish_to_pypi:
+        description: "Publish the built package to PyPI"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Validate version, changelog, and tag state
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          version = os.environ["VERSION"].strip()
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version):
+              raise SystemExit(
+                  f"VERSION must look like 1.2.3 (optionally with a suffix), got: {version!r}"
+              )
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          project_version = pyproject["project"]["version"]
+
+          init_text = Path("src/muscle_memory/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'__version__ = "([^"]+)"', init_text)
+          if not match:
+              raise SystemExit("Could not find __version__ in src/muscle_memory/__init__.py")
+          init_version = match.group(1)
+
+          if project_version != version:
+              raise SystemExit(
+                  f"pyproject.toml version {project_version!r} does not match requested version {version!r}"
+              )
+          if init_version != version:
+              raise SystemExit(
+                  f"src/muscle_memory/__init__.py version {init_version!r} does not match requested version {version!r}"
+              )
+
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          if f"## [{version}]" not in changelog:
+              raise SystemExit(f"CHANGELOG.md is missing a ## [{version}] section")
+          PY
+
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run test suite
+        run: uv run pytest tests/ --ignore=tests/test_behavioral.py -q
+
+      - name: Build package
+        run: uv build
+
+      - name: Validate distribution metadata
+        run: uvx --from twine twine check dist/*
+
+      - name: Extract release notes
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python scripts/release_notes.py "${VERSION}" > release-notes.md
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Publish to PyPI
+        if: ${{ inputs.publish_to_pypi }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          body_path: release-notes.md
+          files: dist/*

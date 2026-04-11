@@ -26,12 +26,23 @@ def _new_id() -> str:
     return uuid4().hex[:12]
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
 class Maturity(str, Enum):
     """How trusted a Skill is, based on how often it's been useful."""
 
     CANDIDATE = "candidate"  # fresh, needs validation
-    ESTABLISHED = "established"  # proven a few times
+    LIVE = "live"  # trusted enough to retrieve automatically
+    ESTABLISHED = "live"  # backward-compatible alias
     PROVEN = "proven"  # reliably useful
+
+    @classmethod
+    def _missing_(cls, value: object) -> Maturity | None:
+        if value == "established":
+            return cls.LIVE
+        return None
 
 
 class Outcome(str, Enum):
@@ -142,6 +153,11 @@ class Skill(BaseModel):
             raise ValueError("must not be empty")
         return v.strip()
 
+    @field_validator("score")
+    @classmethod
+    def _clamp_score(cls, v: float) -> float:
+        return _clamp01(float(v))
+
     def recompute_score(self) -> None:
         """Score = successes / invocations, clamped to [0, 1].
 
@@ -150,20 +166,20 @@ class Skill(BaseModel):
         if self.invocations == 0:
             self.score = 0.0
         else:
-            self.score = self.successes / self.invocations
+            self.score = _clamp01(self.successes / self.invocations)
 
     def recompute_maturity(self) -> None:
         """Promote Skills that have proven themselves.
 
         Rules of thumb:
-          * < 3 successes → candidate
-          * 3–9 successes, score ≥ 0.6 → established
+          * < 2 successes → candidate
+          * 2–9 successes, score ≥ 0.75 → live
           * ≥ 10 successes, score ≥ 0.7 → proven
         """
         if self.successes >= 10 and self.score >= 0.7:
             self.maturity = Maturity.PROVEN
-        elif self.successes >= 3 and self.score >= 0.6:
-            self.maturity = Maturity.ESTABLISHED
+        elif self.successes >= 2 and self.score >= 0.75:
+            self.maturity = Maturity.LIVE
         else:
             self.maturity = Maturity.CANDIDATE
 

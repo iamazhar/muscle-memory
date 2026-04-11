@@ -1,0 +1,480 @@
+:root {
+  --ink: #11213a;
+  --muted: #61708d;
+  --paper: #f3efe4;
+  --paper-strong: #fffaf0;
+  --line: rgba(17, 33, 58, 0.12);
+  --accent: #fb6f45;
+  --accent-deep: #d84c24;
+  --signal: #1d7f6f;
+  --sky: #dbe8ff;
+  --night: #0d1b2a;
+  --card-shadow: 0 20px 60px rgba(13, 27, 42, 0.12);
+  --radius-lg: 28px;
+  --radius-md: 20px;
+  --radius-sm: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(251, 111, 69, 0.22), transparent 28rem),
+    radial-gradient(circle at top right, rgba(42, 91, 215, 0.16), transparent 30rem),
+    var(--paper);
+  font-family: "Avenir Next", "Segoe UI Variable Display", "SF Pro Display", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-shell {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 0 0;
+}
+
+.site-nav__brand {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-nav__links {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.site-nav__link {
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.site-nav__link.is-active {
+  background: rgba(17, 33, 58, 0.08);
+  color: var(--ink);
+}
+
+.hero,
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.8fr);
+  gap: 1.5rem;
+  align-items: stretch;
+  padding: 4.5rem 0 2rem;
+}
+
+.hero h1,
+.dashboard-hero h1 {
+  margin: 0.25rem 0 1rem;
+  font-size: clamp(2.8rem, 8vw, 5.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.hero__lede,
+.dashboard-hero__lede,
+.section-heading p,
+.feature-card p,
+.faq-item p,
+.pricing-card__description,
+.health-card__summary,
+.metric-card small,
+.activity-list span,
+.checklist,
+.status-card span {
+  color: var(--muted);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 1.8rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.95rem 1.3rem;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.button--primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: white;
+  box-shadow: 0 16px 30px rgba(216, 76, 36, 0.28);
+}
+
+.button--secondary {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--line);
+}
+
+.hero__panel,
+.status-card,
+.feature-card,
+.pricing-card,
+.metric-card,
+.health-card,
+.side-card,
+.faq-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 250, 240, 0.78);
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(16px);
+}
+
+.hero__panel,
+.status-card {
+  padding: 1.5rem;
+  background: linear-gradient(180deg, rgba(13, 27, 42, 0.92), rgba(21, 43, 66, 0.92));
+  color: white;
+}
+
+.hero-stat {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.hero-stat:first-of-type {
+  border-top: 0;
+}
+
+.hero-stat strong,
+.status-card strong {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.trust-strip {
+  padding: 1rem 0 0;
+}
+
+.trust-strip__inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding: 1rem 0 2rem;
+}
+
+.trust-strip__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  color: var(--muted);
+}
+
+.trust-strip__badges span {
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+}
+
+.section-grid,
+.pricing-section,
+.faq-section {
+  padding: 2rem 0 1rem;
+}
+
+.section-heading {
+  max-width: 44rem;
+  margin-bottom: 1.25rem;
+}
+
+.section-heading h2 {
+  margin: 0.35rem 0 0.6rem;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.feature-grid,
+.pricing-grid,
+.dashboard-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.feature-grid,
+.pricing-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature-card,
+.pricing-card,
+.side-card,
+.faq-item,
+.health-card {
+  padding: 1.35rem;
+}
+
+.feature-card h3,
+.pricing-card h3,
+.health-card h3 {
+  margin: 0.45rem 0 0.55rem;
+  font-size: 1.35rem;
+}
+
+.pricing-card {
+  position: relative;
+}
+
+.pricing-card--featured {
+  background: linear-gradient(180deg, rgba(255, 244, 235, 0.95), rgba(255, 250, 240, 0.8));
+  transform: translateY(-0.35rem);
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--accent), var(--card-shadow);
+}
+
+.pricing-card__badge {
+  display: inline-flex;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(251, 111, 69, 0.12);
+  color: var(--accent-deep);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pricing-card--featured .pricing-card__badge {
+  background: var(--accent);
+  color: var(--paper-strong);
+}
+
+.pricing-card__price {
+  margin: 1rem 0 0.5rem;
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.pricing-card__price span {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.pricing-card__list,
+.health-card__list,
+.activity-list,
+.checklist {
+  margin: 1rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.pricing-card__list li,
+.health-card__list li,
+.checklist li {
+  margin-bottom: 0.55rem;
+}
+
+.faq-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.dashboard {
+  padding-bottom: 3rem;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.metric-card {
+  padding: 1.2rem 1.15rem;
+}
+
+.metric-card p,
+.metric-card small,
+.status-card p {
+  margin: 0;
+}
+
+.metric-card strong {
+  display: block;
+  margin: 0.5rem 0 0.35rem;
+  font-size: 2rem;
+  letter-spacing: -0.05em;
+}
+
+.metric-card span {
+  display: inline-flex;
+  margin-bottom: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(29, 127, 111, 0.12);
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.dashboard-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.8fr);
+  align-items: start;
+}
+
+.dashboard-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-sidebar {
+  display: grid;
+  gap: 1rem;
+}
+
+.segment-switcher {
+  padding: 0.75rem 0;
+}
+
+.segment-switcher__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.segment-switcher__button {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.segment-switcher__button.is-active {
+  background: var(--night);
+  border-color: var(--night);
+  color: white;
+}
+
+.health-card__headline {
+  margin: 0.2rem 0 0.6rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.health-card__score {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(29, 127, 111, 0.12), rgba(219, 232, 255, 0.7));
+}
+
+.health-card__score strong {
+  font-size: 2rem;
+  letter-spacing: -0.05em;
+}
+
+.activity-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.activity-list li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.activity-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.activity-list small {
+  color: var(--muted);
+}
+
+@media (max-width: 920px) {
+  .hero,
+  .dashboard-hero,
+  .dashboard-grid,
+  .feature-grid,
+  .pricing-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-card--featured {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .site-shell {
+    width: min(100% - 1.2rem, 1120px);
+  }
+
+  .hero,
+  .dashboard-hero {
+    padding-top: 3rem;
+  }
+
+  .site-nav {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .hero__actions,
+  .segment-switcher__buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button,
+  .segment-switcher__button {
+    width: 100%;
+    justify-content: center;
+  }
+}
