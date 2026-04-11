@@ -5,6 +5,35 @@ All notable changes to `muscle-memory` will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-04-11
+
+### Added
+
+- Quarantined skill lifecycle with explicit `candidate -> live -> proven` trust stages
+- `mm review list`, `mm review approve`, and `mm review reject` for human review of extracted skills
+- A realistic in-repo demo app, `demo/orbitops`, for dogfooding repeated workflows on a small SaaS surface
+- `docs/demo.md` and OrbitOps dogfood prompts so new users can try the product immediately
+- A manual GitHub Actions `Release` workflow that validates version metadata, runs tests, builds artifacts, tags, creates a GitHub release, and can publish to PyPI
+- `scripts/release_notes.py` to generate release notes directly from `CHANGELOG.md`
+
+### Changed
+
+- Retrieval now ignores quarantined candidates so only trusted skills auto-inject
+- Duplicate extracted skills now merge evidence and can auto-promote after repeated successful source episodes
+- `mm stats` and `mm eval report` now expose candidate/live/proven pool state and pending review
+- Auto-refine skips quarantined candidates and focuses on trusted skills with real failure signal
+- CLI help surface stays cleaner by moving candidate triage into the dedicated `review` group
+- README positioning now includes the OrbitOps demo as the fastest path to dogfood the product
+
+### Fixed
+
+- Obvious no-match prompts no longer receive weak irrelevant playbook injections
+- Skill scores are clamped consistently and repeated activations in the same session no longer overcount invocations
+- Claude CLI extraction failures now surface clearer underlying errors instead of vague wrapper failures
+- Basic demo-server `HEAD` requests work as expected for simple HTTP tooling checks
+
+---
+
 ## [0.2.1] — 2026-04-09
 
 ### Added
@@ -292,6 +321,7 @@ to install with `uv tool install muscle-memory`.
   so multi-turn executions drop the marker from stdout. Interactive
   Claude Code users see it every time. Documented in `docs/testing.md`.
 
+[0.8.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.8.0
 [0.2.1]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.0
 [0.1.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.1.0
