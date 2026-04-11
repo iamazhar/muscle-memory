@@ -151,6 +151,8 @@ class PlaybookHealth:
     correct: int = 0
     incorrect: int = 0
     needs_review: int = 0
+    step_count: int = 0  # how many steps the playbook prescribes
+    matched_step_total: int = 0  # total matched steps across all activations
 
     @property
     def health_pct(self) -> float:
@@ -231,9 +233,11 @@ def evaluate_health(store: Store) -> HealthReport:
                 by_skill[skill_id] = PlaybookHealth(
                     skill_id=skill_id,
                     activation=skill.activation[:60],
+                    step_count=adh.total_steps,
                 )
             ph = by_skill[skill_id]
             ph.activations += 1
+            ph.matched_step_total += len(adh.matched_steps)
             # Running average
             ph.avg_relevance += (rel.score - ph.avg_relevance) / ph.activations
             ph.avg_adherence += (adh.score - ph.avg_adherence) / ph.activations
@@ -265,12 +269,21 @@ def render_health_report(report: HealthReport) -> None:
     console.print(f"[bold]Playbook Health[/bold] ({report.total_activations} activations)\n")
 
     # Overall metrics
+    total_steps = sum(ph.step_count for ph in report.per_skill)
+    total_matched = sum(ph.matched_step_total for ph in report.per_skill)
+
     h_color = "green" if report.healthy_pct >= 0.7 else "yellow" if report.healthy_pct >= 0.5 else "red"
     console.print(
         f"  [bold]Healthy:[/bold] [{h_color}]{report.healthy_pct:.0%}[/{h_color}]"
         f"  [bold]Avg relevance:[/bold] {report.avg_relevance:.2f}"
         f"  [bold]Avg adherence:[/bold] {report.avg_adherence:.2f}"
     )
+    if total_steps:
+        console.print(
+            f"  [bold]Steps executed:[/bold] {total_matched} / "
+            f"{total_steps * report.total_activations // len(report.per_skill)} possible"
+            f"  [dim](each followed step = a problem solved without trial-and-error)[/dim]"
+        )
     if report.needs_review_count:
         console.print(
             f"  [yellow]{report.needs_review_count} activations need human review[/yellow]"
@@ -282,15 +295,14 @@ def render_health_report(report: HealthReport) -> None:
         console.print()
         table = Table(title="Per-Skill Health")
         table.add_column("id", style="dim", width=10)
-        table.add_column("activation", width=40)
+        table.add_column("activation", width=35)
         table.add_column("acts", justify="right", width=5)
-        table.add_column("relevance", justify="right", width=10)
+        table.add_column("steps", justify="right", width=6)
         table.add_column("adherence", justify="right", width=10)
         table.add_column("correct", justify="right", width=10)
         table.add_column("status", width=12)
 
         for ph in report.per_skill:
-            r_color = "green" if ph.avg_relevance >= 0.5 else "red"
             a_color = "green" if ph.avg_adherence >= 0.5 else "red"
             h_pct = ph.health_pct
 
@@ -298,8 +310,6 @@ def render_health_report(report: HealthReport) -> None:
                 status = "[green]healthy[/green]"
             elif ph.incorrect > 0:
                 status = "[red]bad steps[/red]"
-            elif ph.avg_relevance < 0.3:
-                status = "[red]wrong match[/red]"
             elif ph.avg_adherence < 0.3:
                 status = "[yellow]ignored[/yellow]"
             elif ph.needs_review > 0:
@@ -311,7 +321,7 @@ def render_health_report(report: HealthReport) -> None:
                 ph.skill_id[:8],
                 ph.activation,
                 str(ph.activations),
-                f"[{r_color}]{ph.avg_relevance:.2f}[/{r_color}]",
+                str(ph.step_count),
                 f"[{a_color}]{ph.avg_adherence:.2f}[/{a_color}]",
                 f"{ph.correct}/{ph.activations}",
                 status,
