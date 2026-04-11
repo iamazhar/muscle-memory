@@ -33,7 +33,7 @@ from typing import Any
 from muscle_memory.db import Store
 from muscle_memory.extractor import _short
 from muscle_memory.llm import LLM
-from muscle_memory.models import Episode, Skill
+from muscle_memory.models import Episode, Maturity, Skill
 
 
 class RefinementError(RuntimeError):
@@ -504,6 +504,8 @@ def should_auto_refine(skill: Skill) -> bool:
       - Failed a meaningful number of times (≥ MIN_FAILURES_FOR_AUTO)
       - A success rate below MAX_SUCCESS_RATE_FOR_AUTO
     """
+    if skill.maturity is Maturity.CANDIDATE:
+        return False
     if skill.invocations < MIN_INVOCATIONS_FOR_AUTO:
         return False
     if skill.failures < MIN_FAILURES_FOR_AUTO:

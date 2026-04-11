@@ -11,9 +11,10 @@ from datetime import UTC, datetime
 from importlib import resources
 from typing import Any
 
+from muscle_memory.admission import admit_extracted_skill, should_extract_from_episode
 from muscle_memory.config import Config
 from muscle_memory.llm import LLM
-from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall
+from muscle_memory.models import Episode, Scope, Skill, ToolCall
 
 
 class ExtractionError(RuntimeError):
@@ -146,12 +147,12 @@ class Extractor:
         """Return zero or a few candidate Skills derived from `episode`.
 
         Returns an empty list if the LLM legitimately judges nothing
-        reusable was learned, or if the episode is a known FAILURE,
+        reusable was learned, or if the episode is too weak / uncertain,
         or if the trajectory has no activity. Raises `ExtractionError`
         if the LLM call fails or its response can't be parsed —
         callers decide how to handle those.
         """
-        if episode.outcome is Outcome.FAILURE:
+        if not should_extract_from_episode(episode).accepted:
             return []
 
         if not episode.trajectory.tool_calls and not episode.trajectory.assistant_turns:
@@ -189,6 +190,8 @@ class Extractor:
                     created_at=now,
                 )
             except Exception:
+                continue
+            if not admit_extracted_skill(skill).accepted:
                 continue
             out.append(skill)
         return out

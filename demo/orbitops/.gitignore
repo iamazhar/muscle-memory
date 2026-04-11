@@ -1,0 +1,4 @@
+/.claude/mm.db
+/.claude/settings.json
+/__pycache__/
+/static/__pycache__/

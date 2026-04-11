@@ -168,18 +168,18 @@ class TestStatsPopulated:
         )
         store.add_skill(proven)
 
-        # Add an established skill
-        established = _make_skill(
+        # Add a live skill
+        live = _make_skill(
             activation="When debugging import errors",
             score=0.75,
             invocations=8,
             successes=6,
             failures=2,
-            maturity=Maturity.ESTABLISHED,
+            maturity=Maturity.LIVE,
             created_at=datetime.now(UTC) - timedelta(days=3),
             last_used_at=datetime.now(UTC) - timedelta(days=1),
         )
-        store.add_skill(established)
+        store.add_skill(live)
 
         # Add a struggling skill (score < 0.5, invocations >= 3)
         struggling = _make_skill(
@@ -248,7 +248,7 @@ class TestStatsPopulated:
         # Learning section
         assert "Learning" in output
         assert "proven" in output
-        assert "established" in output
+        assert "live" in output
         assert "candidate" in output
         assert "new (7d)" in output
 
@@ -279,10 +279,11 @@ class TestStatsPopulated:
         assert isinstance(data["avg_reward"], float)
         assert "maturity" in data
         assert data["maturity"]["proven"] == 1
-        assert data["maturity"]["established"] == 1
+        assert data["maturity"]["live"] == 1
         assert data["maturity"]["candidate"] == 2
         assert data["new_7d"] >= 1
         assert "attention" in data
+        assert "pending_review" in data["attention"]
         assert "top_skills" in data
         assert "struggling_skills" in data
 
@@ -602,6 +603,7 @@ class TestAttentionMetrics:
                 successes=2,
                 failures=3,
                 score=0.4,
+                maturity=Maturity.LIVE,
             ),
             # score too high
             _make_skill(
@@ -610,6 +612,7 @@ class TestAttentionMetrics:
                 successes=4,
                 failures=2,
                 score=0.8,
+                maturity=Maturity.LIVE,
             ),
             # not enough invocations
             _make_skill(
@@ -618,6 +621,7 @@ class TestAttentionMetrics:
                 successes=1,
                 failures=2,
                 score=0.33,
+                maturity=Maturity.LIVE,
             ),
             # not enough failures
             _make_skill(
@@ -626,6 +630,7 @@ class TestAttentionMetrics:
                 successes=3,
                 failures=1,
                 score=0.5,
+                maturity=Maturity.LIVE,
             ),
         ]
         data = _json_stats(store_dir, skills, [_make_episode()])
@@ -708,8 +713,20 @@ class TestAttentionMetrics:
 class TestTopSkillsSelection:
     def test_requires_min_2_invocations(self, store_dir: Path) -> None:
         skills = [
-            _make_skill(activation="When A", invocations=1, successes=1, score=1.0),
-            _make_skill(activation="When B", invocations=2, successes=2, score=1.0),
+            _make_skill(
+                activation="When A",
+                invocations=1,
+                successes=1,
+                score=1.0,
+                maturity=Maturity.LIVE,
+            ),
+            _make_skill(
+                activation="When B",
+                invocations=2,
+                successes=2,
+                score=1.0,
+                maturity=Maturity.LIVE,
+            ),
         ]
         data = _json_stats(store_dir, skills, [_make_episode()])
         assert len(data["top_skills"]) == 1
@@ -717,7 +734,13 @@ class TestTopSkillsSelection:
 
     def test_limited_to_3(self, store_dir: Path) -> None:
         skills = [
-            _make_skill(activation=f"When {c}", invocations=5, successes=4, score=0.8)
+            _make_skill(
+                activation=f"When {c}",
+                invocations=5,
+                successes=4,
+                score=0.8,
+                maturity=Maturity.LIVE,
+            )
             for c in "ABCDE"
         ]
         data = _json_stats(store_dir, skills, [_make_episode()])
@@ -725,9 +748,27 @@ class TestTopSkillsSelection:
 
     def test_sorted_by_score_desc(self, store_dir: Path) -> None:
         skills = [
-            _make_skill(activation="When Low", invocations=5, successes=2, score=0.4),
-            _make_skill(activation="When High", invocations=5, successes=5, score=1.0),
-            _make_skill(activation="When Mid", invocations=5, successes=3, score=0.6),
+            _make_skill(
+                activation="When Low",
+                invocations=5,
+                successes=2,
+                score=0.4,
+                maturity=Maturity.LIVE,
+            ),
+            _make_skill(
+                activation="When High",
+                invocations=5,
+                successes=5,
+                score=1.0,
+                maturity=Maturity.LIVE,
+            ),
+            _make_skill(
+                activation="When Mid",
+                invocations=5,
+                successes=3,
+                score=0.6,
+                maturity=Maturity.LIVE,
+            ),
         ]
         data = _json_stats(store_dir, skills, [_make_episode()])
         scores = [s["score"] for s in data["top_skills"]]
@@ -795,7 +836,7 @@ class TestMaturityBreakdown:
         skills = [
             _make_skill(activation="When A", maturity=Maturity.PROVEN),
             _make_skill(activation="When B", maturity=Maturity.PROVEN),
-            _make_skill(activation="When C", maturity=Maturity.ESTABLISHED),
+            _make_skill(activation="When C", maturity=Maturity.LIVE),
             _make_skill(activation="When D", maturity=Maturity.CANDIDATE),
             _make_skill(activation="When E", maturity=Maturity.CANDIDATE),
             _make_skill(activation="When F", maturity=Maturity.CANDIDATE),
@@ -803,6 +844,6 @@ class TestMaturityBreakdown:
         data = _json_stats(store_dir, skills, [_make_episode()])
         assert data["maturity"] == {
             "proven": 2,
-            "established": 1,
+            "live": 1,
             "candidate": 3,
         }

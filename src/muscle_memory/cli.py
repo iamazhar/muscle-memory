@@ -26,8 +26,17 @@ app = typer.Typer(
     add_completion=False,
 )
 
+maint_app = typer.Typer(help="Maintenance, repair, and runtime controls.")
+app.add_typer(maint_app, name="maint")
+
+share_app = typer.Typer(help="Import/export skills for sharing and backup.")
+app.add_typer(share_app, name="share")
+
+review_app = typer.Typer(help="Review quarantined candidate skills.")
+app.add_typer(review_app, name="review")
+
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
-app.add_typer(hook_app, name="hook")
+app.add_typer(hook_app, name="hook", hidden=True)
 
 eval_app = typer.Typer(help="Evaluate outcome detection, retrieval, and skill impact.")
 app.add_typer(eval_app, name="eval")
@@ -55,7 +64,7 @@ def _open_store(cfg: Config) -> Store:
 def _format_maturity(m: Maturity) -> str:
     colors = {
         Maturity.CANDIDATE: "yellow",
-        Maturity.ESTABLISHED: "cyan",
+        Maturity.LIVE: "cyan",
         Maturity.PROVEN: "green",
     }
     return f"[{colors[m]}]{m.value}[/{colors[m]}]"
@@ -113,13 +122,33 @@ def _relative_time(dt: datetime) -> str:
 # ----------------------------------------------------------------------
 
 
-@app.command()
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"muscle-memory {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version and exit.",
+    ),
+) -> None:
+    """muscle-memory: procedural memory for coding agents."""
+
+
+@app.command(hidden=True)
 def version() -> None:
     """Print version and exit."""
     console.print(f"muscle-memory {__version__}")
 
 
-@app.command()
+@maint_app.command("pause")
+@app.command(hidden=True)
 def pause() -> None:
     """Pause muscle-memory. Hooks will silently no-op until resumed."""
     cfg = _load_config()
@@ -130,7 +159,8 @@ def pause() -> None:
     )
 
 
-@app.command()
+@maint_app.command("resume")
+@app.command(hidden=True)
 def resume() -> None:
     """Resume muscle-memory after a pause."""
     cfg = _load_config()
@@ -242,6 +272,78 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
     )
 
 
+@review_app.command("list")
+def review_list(
+    limit: int = typer.Option(50, "--limit", "-n"),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """List quarantined candidate skills awaiting review or promotion."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    skills = store.list_skills(maturity=Maturity.CANDIDATE, limit=limit)
+    skills.sort(
+        key=lambda s: (len(dict.fromkeys(s.source_episode_ids)), s.created_at),
+        reverse=True,
+    )
+
+    if as_json:
+        payload = []
+        for s in skills:
+            item = _skill_to_dict(s)
+            item["source_evidence"] = len(dict.fromkeys(s.source_episode_ids))
+            payload.append(item)
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not skills:
+        console.print("[green]No candidate skills awaiting review.[/green]")
+        return
+
+    table = Table(title=f"candidate skills ({len(skills)})")
+    table.add_column("id", style="dim", width=10)
+    table.add_column("evidence", justify="right", width=8)
+    table.add_column("created", width=10)
+    table.add_column("activation")
+
+    for s in skills:
+        table.add_row(
+            _short_id(s.id),
+            str(len(dict.fromkeys(s.source_episode_ids))),
+            _relative_time(s.created_at),
+            s.activation,
+        )
+    console.print(table)
+
+
+@review_app.command("approve")
+def review_approve(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> None:
+    """Promote a candidate so it becomes retrievable."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    skill = _resolve_skill(store, skill_id)
+
+    if skill.maturity is Maturity.PROVEN:
+        console.print("[dim]Skill is already proven.[/dim]")
+        return
+    if skill.maturity is not Maturity.LIVE:
+        skill.maturity = Maturity.LIVE
+        store.update_skill(skill)
+
+    console.print(
+        f"[green]Approved[/green] {skill.id[:8]} as [cyan]{skill.maturity.value}[/cyan]."
+    )
+
+
+@review_app.command("reject")
+def review_reject(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> None:
+    """Delete a candidate judged to be junk or not worth keeping."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    skill = _resolve_skill(store, skill_id)
+    store.delete_skill(skill.id)
+    console.print(f"[green]Rejected[/green] {skill.id[:8]} and deleted it.")
+
+
 @app.command()
 def log(
     outcome: Outcome | None = typer.Option(None, "--outcome", "-o", help="Filter by outcome."),
@@ -322,7 +424,10 @@ def stats(
     # Reuse rate
     total_invocations = sum(s.invocations for s in skills)
     total_successes = sum(s.successes for s in skills)
-    reuse_rate = (total_successes / total_invocations) if total_invocations else 0.0
+    effective_total_invocations = sum(max(s.invocations, s.successes + s.failures) for s in skills)
+    reuse_rate = (
+        total_successes / effective_total_invocations if effective_total_invocations else 0.0
+    )
 
     # Episodes with skills + avg reward
     eps_with_skills = [ep for ep in episodes if ep.activated_skills]
@@ -341,6 +446,8 @@ def stats(
 
     need_refine = [s for s in skills if should_auto_refine(s)]
     at_risk = [s for s in skills if s.invocations >= 5 and s.score <= 0.2]
+    inconsistent_counters = [s for s in skills if s.successes + s.failures > s.invocations]
+    pending_review = [s for s in skills if s.maturity is Maturity.CANDIDATE]
     cutoff_30d = now - timedelta(days=30)
     stale = [
         s
@@ -353,7 +460,7 @@ def stats(
     unknown_rate = (unknown_count / len(episodes)) if episodes else 0.0
 
     # Top and struggling skills
-    top_skills = [s for s in skills if s.invocations >= 2][:3]
+    top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][:3]
     struggling = sorted(
         [s for s in skills if s.invocations >= 3 and s.score < 0.5],
         key=lambda s: s.score,
@@ -380,6 +487,8 @@ def stats(
             "attention": {
                 "need_refine": len(need_refine),
                 "at_risk": len(at_risk),
+                "counter_drift": len(inconsistent_counters),
+                "pending_review": len(pending_review),
                 "stale": len(stale),
                 "unknown_rate": unknown_rate,
             },
@@ -427,7 +536,7 @@ def stats(
     console.print(Rule("Learning"))
     maturity_line = (
         f"{by_maturity[Maturity.PROVEN]} proven"
-        f" · {by_maturity[Maturity.ESTABLISHED]} established"
+        f" · {by_maturity[Maturity.LIVE]} live"
         f" · {by_maturity[Maturity.CANDIDATE]} candidate"
     )
     console.print(f"  [bold]maturity[/bold]       {maturity_line}")
@@ -455,6 +564,18 @@ def stats(
         console.print(
             f"  [red]at risk[/red]        {len(at_risk)} skills"
             "  (≥5 uses, score ≤0.2 — will be pruned)"
+        )
+        attention_items += 1
+    if pending_review:
+        console.print(
+            f"  [yellow]pending review[/yellow] {len(pending_review)} candidates"
+            "  (`mm review list` / `mm review approve`)"
+        )
+        attention_items += 1
+    if inconsistent_counters:
+        console.print(
+            f"  [yellow]counter drift[/yellow] {len(inconsistent_counters)} skills"
+            "  (success/failure counts exceed activations; run `mm rescore`)"
         )
         attention_items += 1
     if stale:
@@ -657,7 +778,8 @@ def _print_refinement_result(result: Any, *, dry_run: bool) -> None:
         console.print(Panel(body, title="proposed revision (dry-run)"))
 
 
-@app.command()
+@maint_app.command("rescore")
+@app.command(hidden=True)
 def rescore() -> None:
     """Re-run the outcome heuristic on every episode and re-credit skills.
 
@@ -666,25 +788,26 @@ def rescore() -> None:
     episodes so skill scores reflect current logic.
     """
     from muscle_memory.outcomes import infer_outcome
-    from muscle_memory.scorer import Scorer
 
     cfg = _load_config()
     store = _open_store(cfg)
 
-    # First, reset skill counters so rescoring is idempotent.
+    # First, reset skill counters so rescoring is idempotent and can
+    # repair stores whose invocation counts drifted in older versions.
     reset_n = 0
+    skills_by_id: dict[str, Skill] = {}
     for skill in store.list_skills():
+        skill.invocations = 0
         skill.successes = 0
         skill.failures = 0
-        # keep invocations (set by user_prompt hook at retrieval time)
         skill.recompute_score()
         skill.recompute_maturity()
-        store.update_skill(skill)
+        skills_by_id[skill.id] = skill
         reset_n += 1
 
-    # Iterate episodes, re-infer outcomes, re-credit skills.
+    # Iterate episodes, re-infer outcomes, and rebuild per-skill counters
+    # from the episode activation records.
     episodes = store.list_episodes(limit=10_000)
-    scorer = Scorer(store, max_skills=cfg.max_skills)
     outcome_counts = {"success": 0, "failure": 0, "unknown": 0}
 
     for ep in episodes:
@@ -697,7 +820,21 @@ def rescore() -> None:
         ep.reward = signal.reward
         outcome_counts[signal.outcome.value] += 1
         store.update_episode_outcome(ep.id, outcome=signal.outcome, reward=signal.reward)
-        scorer.credit_episode(ep)
+
+        for skill_id in dict.fromkeys(ep.activated_skills):
+            skill = skills_by_id.get(skill_id)
+            if skill is None:
+                continue
+            skill.invocations += 1
+            if ep.outcome is Outcome.SUCCESS:
+                skill.successes += 1
+            elif ep.outcome is Outcome.FAILURE:
+                skill.failures += 1
+
+    for skill in skills_by_id.values():
+        skill.recompute_score()
+        skill.recompute_maturity()
+        store.update_skill(skill)
 
     console.print(
         Panel.fit(
@@ -711,7 +848,8 @@ def rescore() -> None:
     )
 
 
-@app.command()
+@maint_app.command("prune")
+@app.command(hidden=True)
 def prune(
     below: float = typer.Option(0.2, "--below", help="Score floor for pruning."),
     min_invocations: int = typer.Option(5, "--min-invocations"),
@@ -732,7 +870,8 @@ def prune(
     console.print(f"[green]Pruned {len(report.removed)} skills.[/green] {report.kept} remain.")
 
 
-@app.command()
+@share_app.command("export")
+@app.command(hidden=True)
 def export(
     output: Path = typer.Argument(Path("skills.json"), help="Output path."),
 ) -> None:
@@ -745,7 +884,8 @@ def export(
     console.print(f"[green]Exported {len(skills)} skills to {output}[/green]")
 
 
-@app.command("import")
+@share_app.command("import")
+@app.command("import", hidden=True)
 def import_cmd(
     input: Path = typer.Argument(..., help="Input JSON file."),
 ) -> None:
@@ -819,16 +959,17 @@ def bootstrap(
             title=title,
         )
     )
-    if report.aborted_reason:
-        console.print(
-            f"\n[red]aborted:[/red] {report.aborted_reason}\n"
-            "[dim]fix the underlying issue (API credits, auth, model name) "
-            "and re-run `mm bootstrap`.[/dim]"
-        )
-        raise typer.Exit(1)
     if report.errors:
         for err in report.errors[:5]:
             console.print(f"[yellow]  {err}[/yellow]")
+    if report.aborted_reason:
+        console.print(
+            f"\n[red]aborted:[/red] {report.aborted_reason}\n"
+            "[dim]fix the underlying issue above (login/auth, Claude CLI compatibility, "
+            "model name, or provider limits) "
+            "and re-run `mm bootstrap`.[/dim]"
+        )
+        raise typer.Exit(1)
 
 
 @app.command("extract-episode", hidden=True)
@@ -866,7 +1007,8 @@ def extract_episode_cmd(episode_id: str) -> None:
     )
 
 
-@app.command()
+@maint_app.command("dedup")
+@app.command(hidden=True)
 def dedup(
     dry_run: bool = typer.Option(False, "--dry-run", help="Only show what would be consolidated."),
     threshold: float = typer.Option(
@@ -1053,6 +1195,17 @@ def eval_report() -> None:
 
     cfg = _load_config()
     store = _open_store(cfg)
+
+    skills = store.list_skills()
+    counts = {m: 0 for m in Maturity}
+    for skill in skills:
+        counts[skill.maturity] += 1
+    console.print(
+        f"[bold]Pool:[/bold] {counts[Maturity.CANDIDATE]} candidate"
+        f" · {counts[Maturity.LIVE]} live"
+        f" · {counts[Maturity.PROVEN]} proven"
+    )
+    console.print()
 
     # Health
     health = evaluate_health(store)

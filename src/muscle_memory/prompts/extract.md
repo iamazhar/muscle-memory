@@ -40,6 +40,10 @@ A skill worth extracting is a **pattern** — it has:
 - **Single-command trivia** — `ls`, `cat`, `git status`.
 - **Project facts** — "this is a Python project using uv".
 - **Style preferences** — "use snake_case".
+- **One-off literals** — temp paths, session IDs, UUIDs, PR/issue numbers,
+  exact dates, or other details that only make sense for this one run.
+
+If the trajectory only demonstrates a one-off task, return `[]`.
 
 ## Skill format
 
@@ -49,11 +53,16 @@ agent (Claude Code) can execute verbatim:
 - **activation** — when this skill applies. Be specific:
   "When `uv tool install` of a local package doesn't pick up source
   changes", not "when installing packages".
+  Prefer reusable triggers like errors, workflows, platform quirks,
+  or repeated maintenance tasks. Do not anchor the trigger to one
+  specific PR, branch, session, or temp file path.
 
 - **execution** — ordered actions to PERFORM. Each step is a concrete
   command to run:
   * **YES:** `1. Run `chflags nohidden .venv/lib/python*/site-packages/*.pth`.`
   * **NO:**  `1. You should check for the hidden flag on .pth files.`
+  Use at least two concrete steps when extracting a skill. If there is
+  no multi-step reusable procedure, return `[]`.
 
 - **termination** — how the agent knows it's done. An observable signal:
   "tests pass", "command exits 0", "import succeeds".

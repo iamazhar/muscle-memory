@@ -103,6 +103,27 @@ def _find_balanced(s: str) -> str:
     raise ValueError("unbalanced JSON")
 
 
+def _extract_claude_result(stdout: str) -> tuple[str, bool]:
+    """Return (result_text, is_error) from Claude Code's JSON output."""
+    try:
+        events = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"claude -p returned non-JSON output: {stdout[:200]}") from exc
+
+    if not isinstance(events, list):
+        raise RuntimeError("claude -p output was not a JSON event list")
+
+    for event in reversed(events):
+        if not isinstance(event, dict) or event.get("type") != "result":
+            continue
+        text = event.get("result")
+        if text is None or text == "":
+            raise RuntimeError("claude -p returned empty result")
+        return str(text), bool(event.get("is_error"))
+
+    raise RuntimeError("claude -p output missing result event")
+
+
 class OpenAILLM:
     """OpenAI client for structured extraction. Uses the Chat Completions API
     with `response_format={'type': 'json_object'}` for reliable JSON output.
@@ -238,26 +259,20 @@ class ClaudeCodeLLM:
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError("claude -p timed out after 120s") from exc
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"claude -p failed (exit {result.returncode}): {result.stderr[:500]}"
-            )
-
-        # Parse the JSON output to extract the result text
         try:
-            events = json.loads(result.stdout)
-            if isinstance(events, list):
-                for event in reversed(events):
-                    if isinstance(event, dict) and event.get("type") == "result":
-                        text = event.get("result")
-                        if text is None or text == "":
-                            raise RuntimeError("claude -p returned empty result")
-                        return str(text)
-            raise RuntimeError("claude -p output missing result event")
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"claude -p returned non-JSON output: {result.stdout[:200]}"
-            ) from exc
+            text, is_error = _extract_claude_result(result.stdout)
+        except RuntimeError:
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout[:500]
+                raise RuntimeError(
+                    f"claude -p failed (exit {result.returncode}): {detail}"
+                ) from None
+            raise
+
+        if result.returncode != 0 or is_error:
+            raise RuntimeError(f"claude -p failed: {text}")
+
+        return text
 
     def complete_text(
         self,

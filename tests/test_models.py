@@ -34,19 +34,30 @@ class TestSkill:
         s.recompute_score()
         assert s.score == pytest.approx(0.7)
 
-    def test_maturity_candidate_then_established_then_proven(self) -> None:
+    def test_recompute_score_clamps_to_one(self) -> None:
+        s = Skill(activation="a", execution="e", termination="t")
+        s.invocations = 1
+        s.successes = 5
+        s.recompute_score()
+        assert s.score == 1.0
+
+    def test_score_is_clamped_on_load(self) -> None:
+        s = Skill(activation="a", execution="e", termination="t", score=12.0)
+        assert s.score == 1.0
+
+    def test_maturity_candidate_then_live_then_proven(self) -> None:
         s = Skill(activation="a", execution="e", termination="t")
 
         # candidate initially
         s.recompute_maturity()
         assert s.maturity is Maturity.CANDIDATE
 
-        # established at 3 successes with score >= 0.6
-        s.invocations = 5
-        s.successes = 3
+        # live at 2 successes with score >= 0.75
+        s.invocations = 2
+        s.successes = 2
         s.recompute_score()
         s.recompute_maturity()
-        assert s.maturity is Maturity.ESTABLISHED
+        assert s.maturity is Maturity.LIVE
 
         # proven at 10 successes with score >= 0.7
         s.invocations = 13
@@ -65,7 +76,7 @@ class TestSkill:
         )
         s.recompute_score()
         s.recompute_maturity()
-        assert s.maturity is Maturity.ESTABLISHED
+        assert s.maturity is Maturity.LIVE
 
         # failures drag score below threshold
         s.failures = 10

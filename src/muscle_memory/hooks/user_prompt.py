@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         retriever = Retriever(store, embedder, cfg)
 
         hits = retriever.retrieve(prompt)
+        existing_activation_ids = _load_recorded_activation_ids(cfg, session_id)
     except Exception:
         # hook failures must never break the user's turn
         return 0
@@ -72,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        retriever.mark_activated(hits)
+        new_hits = [h for h in hits if h.skill.id not in existing_activation_ids]
+        if new_hits:
+            retriever.mark_activated(new_hits)
         _record_activation(
             cfg, session_id,
             [{"skill_id": h.skill.id, "distance": h.distance} for h in hits],
@@ -290,6 +293,30 @@ def _record_activation(
     for a in activations:
         by_id[a["skill_id"]] = a
     sidecar.write_text(json.dumps(list(by_id.values())))
+
+
+def _load_recorded_activation_ids(cfg: Config, session_id: str) -> set[str]:
+    if not session_id:
+        return set()
+
+    sidecar = cfg.db_path.parent / "mm.activations" / f"{session_id}.json"
+    if not sidecar.exists():
+        return set()
+
+    try:
+        raw = json.loads(sidecar.read_text())
+    except Exception:
+        return set()
+
+    skill_ids: set[str] = set()
+    for entry in raw:
+        if isinstance(entry, str):
+            skill_ids.add(entry)
+        elif isinstance(entry, dict):
+            skill_id = entry.get("skill_id")
+            if isinstance(skill_id, str) and skill_id:
+                skill_ids.add(skill_id)
+    return skill_ids
 
 
 if __name__ == "__main__":

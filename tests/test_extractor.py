@@ -12,7 +12,7 @@ from muscle_memory.extractor import (
     Extractor,
     format_trajectory_for_extractor,
 )
-from muscle_memory.models import Episode, Outcome, Trajectory
+from muscle_memory.models import Episode, Outcome, ToolCall, Trajectory
 
 
 class FakeLLM:
@@ -40,7 +40,7 @@ def test_extractor_returns_skills_from_valid_payload(
         [
             {
                 "activation": "when pytest fails with ModuleNotFoundError",
-                "execution": "1. look for tools/test-runner.sh",
+                "execution": "1. look for tools/test-runner.sh\n2. run it instead of pytest",
                 "termination": "tests pass",
                 "tool_hints": ["Bash"],
                 "tags": ["testing"],
@@ -68,10 +68,63 @@ def test_extractor_returns_empty_on_failed_episode(
     assert ex.extract(ep) == []
 
 
+def test_extractor_returns_empty_on_unknown_episode(
+    successful_trajectory: Trajectory, sample_config: Config
+) -> None:
+    ep = Episode(
+        user_prompt="x",
+        trajectory=successful_trajectory,
+        outcome=Outcome.UNKNOWN,
+    )
+    ex = Extractor(
+        FakeLLM(
+            [
+                {
+                    "activation": "when pytest fails with ModuleNotFoundError",
+                    "execution": "1. look for tools/test-runner.sh\n2. run it",
+                    "termination": "tests pass",
+                }
+            ]
+        ),
+        sample_config,
+    )
+    assert ex.extract(ep) == []
+
+
+def test_extractor_returns_empty_on_tiny_success_episode(sample_config: Config) -> None:
+    ep = Episode(
+        user_prompt="x",
+        trajectory=Trajectory(
+            tool_calls=[ToolCall(name="Bash", arguments={"command": "pwd"}, result="/tmp/project")]
+        ),
+        outcome=Outcome.SUCCESS,
+    )
+    ex = Extractor(
+        FakeLLM(
+            [
+                {
+                    "activation": "when checking the working directory",
+                    "execution": "1. run pwd\n2. continue",
+                    "termination": "cwd is known",
+                }
+            ]
+        ),
+        sample_config,
+    )
+    assert ex.extract(ep) == []
+
+
 def test_extractor_respects_max_skills(successful_episode: Episode, sample_config: Config) -> None:
     sample_config.extractor_max_skills_per_episode = 2
     llm = FakeLLM(
-        [{"activation": f"skill {i}", "execution": "e", "termination": "t"} for i in range(5)]
+        [
+            {
+                "activation": f"When reusable failure pattern {i} appears",
+                "execution": "1. inspect the failing command\n2. apply the known fix",
+                "termination": "the command succeeds",
+            }
+            for i in range(5)
+        ]
     )
     ex = Extractor(llm, sample_config)
     skills = ex.extract(successful_episode)
@@ -111,15 +164,47 @@ def test_extractor_skips_invalid_skill_entries(
 ) -> None:
     llm = FakeLLM(
         [
-            {"activation": "valid", "execution": "e", "termination": "t"},
-            {"activation": "", "execution": "e", "termination": "t"},  # invalid
+            {"activation": "valid reusable trigger", "execution": "1. do x\n2. do y", "termination": "t"},
+            {"activation": "", "execution": "1. do x\n2. do y", "termination": "t"},  # invalid
             "not a dict",  # invalid
         ]
     )
     ex = Extractor(llm, sample_config)
     skills = ex.extract(successful_episode)
     assert len(skills) == 1
-    assert skills[0].activation == "valid"
+    assert skills[0].activation == "valid reusable trigger"
+
+
+def test_extractor_rejects_one_off_literals(
+    successful_episode: Episode, sample_config: Config
+) -> None:
+    llm = FakeLLM(
+        [
+            {
+                "activation": "When PR #482 fails on 2026-04-11 for session 123e4567-e89b-12d3-a456-426614174000",
+                "execution": "1. Inspect /private/tmp/build.log\n2. Retry the job",
+                "termination": "The exact PR run passes",
+            }
+        ]
+    )
+    ex = Extractor(llm, sample_config)
+    assert ex.extract(successful_episode) == []
+
+
+def test_extractor_rejects_single_step_skills(
+    successful_episode: Episode, sample_config: Config
+) -> None:
+    llm = FakeLLM(
+        [
+            {
+                "activation": "When pytest fails with ModuleNotFoundError",
+                "execution": "1. run the test runner",
+                "termination": "tests pass",
+            }
+        ]
+    )
+    ex = Extractor(llm, sample_config)
+    assert ex.extract(successful_episode) == []
 
 
 def test_format_trajectory_includes_errors(successful_episode: Episode) -> None:
