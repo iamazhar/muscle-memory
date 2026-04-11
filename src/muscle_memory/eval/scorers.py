@@ -113,6 +113,7 @@ class AdherenceScore:
     score: float  # 0.0-1.0, fraction of steps matched
     matched_steps: list[str] = field(default_factory=list)
     unmatched_steps: list[str] = field(default_factory=list)
+    tokens_deterministic: int = 0  # tokens used by matched tool calls
     total_steps: int = 0
 
 
@@ -127,10 +128,13 @@ def score_adherence(skill: Skill, trajectory: Trajectory) -> AdherenceScore:
 
     matched = []
     unmatched = []
+    tokens_used = 0
     for step in steps:
         tokens = _extract_step_tokens(step)
         if _any_token_in_corpus(tokens, corpus):
             matched.append(step)
+            # Count tokens from the matching tool calls
+            tokens_used += _count_matched_tokens(tokens, trajectory)
         else:
             unmatched.append(step)
 
@@ -140,6 +144,7 @@ def score_adherence(skill: Skill, trajectory: Trajectory) -> AdherenceScore:
         matched_steps=matched,
         unmatched_steps=unmatched,
         total_steps=len(steps),
+        tokens_deterministic=tokens_used,
     )
 
 
@@ -197,6 +202,24 @@ def _extract_step_tokens(step: str) -> list[str]:
         tokens = [w for w in words if w.lower() not in stopwords]
 
     return tokens
+
+
+def _count_matched_tokens(step_tokens: list[str], trajectory: Trajectory) -> int:
+    """Count approximate tokens from tool calls that match step tokens.
+
+    Uses ~4 chars per token as a rough approximation.
+    """
+    chars = 0
+    for tc in trajectory.tool_calls:
+        tc_text = tc.name + " " + str(tc.arguments) + " " + (tc.result or "") + (tc.error or "")
+        tc_lower = tc_text.lower()
+        if any(t.lower() in tc_lower for t in step_tokens if t and len(t) >= 4):
+            # This tool call matches — count its content
+            chars += len(str(tc.arguments))
+            chars += len(tc.result or "")
+            chars += len(tc.error or "")
+            break  # One tool call per step
+    return chars // 4  # ~4 chars per token
 
 
 def _build_trajectory_corpus(trajectory: Trajectory) -> str:

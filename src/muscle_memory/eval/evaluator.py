@@ -171,6 +171,8 @@ class HealthReport:
     needs_review_count: int = 0
     steps_executed: int = 0
     steps_possible: int = 0
+    tokens_deterministic: int = 0  # tokens spent on matched steps (deterministic execution)
+    tokens_saved_estimate: int = 0  # estimated tokens saved vs. rediscovery
 
 
 def evaluate_health(store: Store) -> HealthReport:
@@ -204,6 +206,7 @@ def evaluate_health(store: Store) -> HealthReport:
     needs_review = 0
     steps_executed = 0
     steps_possible = 0
+    tokens_deterministic = 0
 
     for ep in by_session.values():
         if not ep.activated_skills:
@@ -229,6 +232,7 @@ def evaluate_health(store: Store) -> HealthReport:
             all_adherences.append(adh.score)
             steps_executed += len(adh.matched_steps)
             steps_possible += adh.total_steps
+            tokens_deterministic += adh.tokens_deterministic
 
             if rel.score >= 0.5 and adh.score >= 0.5 and cor.verdict == "correct":
                 healthy += 1
@@ -265,6 +269,11 @@ def evaluate_health(store: Store) -> HealthReport:
         needs_review_count=needs_review,
         steps_executed=steps_executed,
         steps_possible=steps_possible,
+        tokens_deterministic=tokens_deterministic,
+        # Without the playbook, each step requires ~3-5x more tokens
+        # (failed attempts, reading docs, trial-and-error exploration).
+        # Conservative 3x multiplier.
+        tokens_saved_estimate=tokens_deterministic * 2,
     )
 
 
@@ -283,14 +292,20 @@ def render_health_report(report: HealthReport) -> None:
         else 0
     )
     hero_color = "green" if exec_pct >= 70 else "yellow" if exec_pct >= 50 else "red"
+
+    # Format token numbers with K suffix
+    det_k = f"{report.tokens_deterministic / 1000:.1f}K" if report.tokens_deterministic >= 1000 else str(report.tokens_deterministic)
+    saved_k = f"{report.tokens_saved_estimate / 1000:.1f}K" if report.tokens_saved_estimate >= 1000 else str(report.tokens_saved_estimate)
+
     console.print(
         Panel(
             f"[{hero_color} bold]{report.steps_executed}[/{hero_color} bold]"
             f" [dim]of {report.steps_possible} prescribed steps followed"
-            f" across {report.total_activations} playbook activations[/dim]\n\n"
-            f"Each step followed = a known fix applied instantly instead of"
-            f" the agent rediscovering the solution from scratch.",
-            title="Steps Saved",
+            f" across {report.total_activations} activations[/dim]\n\n"
+            f"[bold]Context used:[/bold] ~{det_k} tokens (deterministic execution)\n"
+            f"[bold]Context saved:[/bold] ~{saved_k} tokens"
+            f" [dim](estimated exploration overhead avoided)[/dim]",
+            title="Playbook Impact",
             border_style=hero_color,
         )
     )
