@@ -81,8 +81,12 @@ class TestEvalLabels:
 
     def test_count_labels(self, store):
         assert store.count_eval_labels("credit") == 0
-        store.add_eval_label(EvalLabel(id="a", label_type="credit", episode_id="ep1", skill_id="s1"))
-        store.add_eval_label(EvalLabel(id="b", label_type="credit", episode_id="ep2", skill_id="s2"))
+        store.add_eval_label(
+            EvalLabel(id="a", label_type="credit", episode_id="ep1", skill_id="s1")
+        )
+        store.add_eval_label(
+            EvalLabel(id="b", label_type="credit", episode_id="ep2", skill_id="s2")
+        )
         store.add_eval_label(EvalLabel(id="c", label_type="outcome", episode_id="ep1"))
         assert store.count_eval_labels("credit") == 2
         assert store.count_eval_labels("outcome") == 1
@@ -96,9 +100,7 @@ class TestEvalLabels:
         unlabeled = store.list_unlabeled_episodes()
         assert len(unlabeled) == 2
 
-        store.add_eval_label(
-            EvalLabel(id="lbl1", label_type="outcome", episode_id=ep1.id)
-        )
+        store.add_eval_label(EvalLabel(id="lbl1", label_type="outcome", episode_id=ep1.id))
         unlabeled = store.list_unlabeled_episodes()
         assert len(unlabeled) == 1
         assert unlabeled[0].id == ep2.id
@@ -114,11 +116,16 @@ class TestCreditEval:
         ep = _make_episode(activated_skills=[skill.id])
         store.add_episode(ep)
 
-        store.add_eval_label(EvalLabel(
-            id="l1", label_type="credit",
-            episode_id=ep.id, skill_id=skill.id,
-            heuristic_outcome="success", human_outcome="deserved",
-        ))
+        store.add_eval_label(
+            EvalLabel(
+                id="l1",
+                label_type="credit",
+                episode_id=ep.id,
+                skill_id=skill.id,
+                heuristic_outcome="success",
+                human_outcome="deserved",
+            )
+        )
         result = evaluate_credits(store)
         assert result.total == 1
         assert result.deserved == 1
@@ -130,16 +137,24 @@ class TestCreditEval:
         ep = _make_episode(activated_skills=[s1.id, s2.id])
         store.add_episode(ep)
 
-        store.add_eval_label(EvalLabel(
-            id="l1", label_type="credit",
-            episode_id=ep.id, skill_id=s1.id,
-            human_outcome="deserved",
-        ))
-        store.add_eval_label(EvalLabel(
-            id="l2", label_type="credit",
-            episode_id=ep.id, skill_id=s2.id,
-            human_outcome="undeserved",
-        ))
+        store.add_eval_label(
+            EvalLabel(
+                id="l1",
+                label_type="credit",
+                episode_id=ep.id,
+                skill_id=s1.id,
+                human_outcome="deserved",
+            )
+        )
+        store.add_eval_label(
+            EvalLabel(
+                id="l2",
+                label_type="credit",
+                episode_id=ep.id,
+                skill_id=s2.id,
+                human_outcome="undeserved",
+            )
+        )
         result = evaluate_credits(store)
         assert result.total == 2
         assert result.deserved == 1
@@ -153,16 +168,24 @@ class TestCreditEval:
         store.add_episode(ep1)
         store.add_episode(ep2)
 
-        store.add_eval_label(EvalLabel(
-            id="l1", label_type="credit",
-            episode_id=ep1.id, skill_id=s1.id,
-            human_outcome="deserved",
-        ))
-        store.add_eval_label(EvalLabel(
-            id="l2", label_type="credit",
-            episode_id=ep2.id, skill_id=s1.id,
-            human_outcome="undeserved",
-        ))
+        store.add_eval_label(
+            EvalLabel(
+                id="l1",
+                label_type="credit",
+                episode_id=ep1.id,
+                skill_id=s1.id,
+                human_outcome="deserved",
+            )
+        )
+        store.add_eval_label(
+            EvalLabel(
+                id="l2",
+                label_type="credit",
+                episode_id=ep2.id,
+                skill_id=s1.id,
+                human_outcome="undeserved",
+            )
+        )
         result = evaluate_credits(store)
         assert len(result.per_skill) == 1
         assert result.per_skill[0].precision == 0.5

@@ -107,4 +107,3 @@ def test_review_reject_deletes_skill(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert store.get_skill(skill.id) is None
-

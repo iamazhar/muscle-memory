@@ -329,9 +329,7 @@ def review_approve(skill_id: str = typer.Argument(..., help="Skill id or prefix.
         skill.maturity = Maturity.LIVE
         store.update_skill(skill)
 
-    console.print(
-        f"[green]Approved[/green] {skill.id[:8]} as [cyan]{skill.maturity.value}[/cyan]."
-    )
+    console.print(f"[green]Approved[/green] {skill.id[:8]} as [cyan]{skill.maturity.value}[/cyan].")
 
 
 @review_app.command("reject")
@@ -363,16 +361,18 @@ def log(
     if as_json:
         data = []
         for ep in episodes:
-            data.append({
-                "id": _short_id(ep.id),
-                "session_id": ep.session_id or "",
-                "prompt": ep.user_prompt[:80],
-                "outcome": ep.outcome.value,
-                "reward": ep.reward,
-                "tool_calls": ep.trajectory.num_tool_calls(),
-                "skills_activated": len(ep.activated_skills),
-                "started_at": ep.started_at.isoformat() if ep.started_at else None,
-            })
+            data.append(
+                {
+                    "id": _short_id(ep.id),
+                    "session_id": ep.session_id or "",
+                    "prompt": ep.user_prompt[:80],
+                    "outcome": ep.outcome.value,
+                    "reward": ep.reward,
+                    "tool_calls": ep.trajectory.num_tool_calls(),
+                    "skills_activated": len(ep.activated_skills),
+                    "started_at": ep.started_at.isoformat() if ep.started_at else None,
+                }
+            )
         typer.echo(json.dumps(data, indent=2))
         return
 
@@ -460,7 +460,9 @@ def stats(
     unknown_rate = (unknown_count / len(episodes)) if episodes else 0.0
 
     # Top and struggling skills
-    top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][:3]
+    top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][
+        :3
+    ]
     struggling = sorted(
         [s for s in skills if s.invocations >= 3 and s.score < 0.5],
         key=lambda s: s.score,
@@ -1113,7 +1115,6 @@ def eval_label(
     label_credits_interactive(store, limit=limit)
 
 
-
 @eval_app.command("build")
 def eval_build(
     output: str = typer.Option(None, "--output", "-o", help="Output path for benchmark JSON."),
@@ -1127,9 +1128,7 @@ def eval_build(
     store = _open_store(cfg)
     out = _Path(output) if output else None
     entries, path = build_benchmark(store, output_path=out)
-    console.print(
-        f"[green]Built benchmark:[/green] {len(entries)} entries -> {path}"
-    )
+    console.print(f"[green]Built benchmark:[/green] {len(entries)} entries -> {path}")
 
 
 @eval_app.command("run")
@@ -1147,9 +1146,7 @@ def eval_run(
     path = _Path(benchmark) if benchmark else cfg.db_path.parent / "benchmark.json"
 
     if not path.exists():
-        console.print(
-            f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first."
-        )
+        console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
         return
 
     result = run_benchmark(store, path)

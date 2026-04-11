@@ -87,9 +87,7 @@ def test_mark_activated_updates_invocations(tmp_db: Store, sample_config: Config
     assert reloaded.last_used_at is not None
 
 
-def test_retriever_filters_obviously_unrelated_prompt(
-    tmp_db: Store, sample_config: Config
-) -> None:
+def test_retriever_filters_obviously_unrelated_prompt(tmp_db: Store, sample_config: Config) -> None:
     embedder = FakeEmbedder()
     skill = Skill(
         activation="When the user asks about Kubernetes CrashLoopBackOff in a production deployment",

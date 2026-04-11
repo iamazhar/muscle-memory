@@ -192,11 +192,40 @@ def _extract_step_tokens(step: str) -> list[str]:
         words = re.findall(r"\b[a-zA-Z_][\w\-]{3,}\b", step)
         # Filter out common English words
         stopwords = {
-            "that", "this", "with", "from", "have", "been", "will",
-            "should", "would", "could", "when", "then", "than", "each",
-            "make", "sure", "also", "into", "some", "them", "their",
-            "does", "done", "only", "just", "more", "most", "after",
-            "before", "above", "below", "file", "step", "command",
+            "that",
+            "this",
+            "with",
+            "from",
+            "have",
+            "been",
+            "will",
+            "should",
+            "would",
+            "could",
+            "when",
+            "then",
+            "than",
+            "each",
+            "make",
+            "sure",
+            "also",
+            "into",
+            "some",
+            "them",
+            "their",
+            "does",
+            "done",
+            "only",
+            "just",
+            "more",
+            "most",
+            "after",
+            "before",
+            "above",
+            "below",
+            "file",
+            "step",
+            "command",
         }
         tokens = [w for w in words if w.lower() not in stopwords]
 
@@ -251,7 +280,9 @@ def estimate_exploration_cost(
                     if j not in used_indices:
                         used_indices.add(j)
                         c = calls[j]
-                        total_chars += len(str(c.arguments)) + len(c.result or "") + len(c.error or "")
+                        total_chars += (
+                            len(str(c.arguments)) + len(c.result or "") + len(c.error or "")
+                        )
                 break
 
     return total_chars // 4  # ~4 chars per token

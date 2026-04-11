@@ -82,7 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         if new_hits:
             retriever.mark_activated(new_hits)
         _record_activation(
-            cfg, session_id,
+            cfg,
+            session_id,
             [{"skill_id": h.skill.id, "distance": h.distance} for h in hits],
         )
     except Exception:
@@ -294,7 +295,12 @@ def _record_activation(
                     if isinstance(skill_id, str) and (
                         distance is None or isinstance(distance, int | float)
                     ):
-                        existing.append({"skill_id": skill_id, "distance": float(distance) if distance is not None else None})
+                        existing.append(
+                            {
+                                "skill_id": skill_id,
+                                "distance": float(distance) if distance is not None else None,
+                            }
+                        )
         except Exception:
             existing = []
 

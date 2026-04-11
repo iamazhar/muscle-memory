@@ -66,7 +66,10 @@ def build_benchmark(
     for ep in episodes:
         sid = ep.session_id or ep.id
         existing = by_session.get(sid)
-        if existing is None or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls():
+        if (
+            existing is None
+            or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls()
+        ):
             by_session[sid] = ep
 
     for ep in by_session.values():
@@ -83,7 +86,9 @@ def build_benchmark(
 
             # Score relevance
             rel = score_relevance(
-                store, ep, skill_id,
+                store,
+                ep,
+                skill_id,
                 stored_distance=distances.get(skill_id),
                 embedder=embedder,
             )

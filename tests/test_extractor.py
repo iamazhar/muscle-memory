@@ -164,7 +164,11 @@ def test_extractor_skips_invalid_skill_entries(
 ) -> None:
     llm = FakeLLM(
         [
-            {"activation": "valid reusable trigger", "execution": "1. do x\n2. do y", "termination": "t"},
+            {
+                "activation": "valid reusable trigger",
+                "execution": "1. do x\n2. do y",
+                "termination": "t",
+            },
             {"activation": "", "execution": "1. do x\n2. do y", "termination": "t"},  # invalid
             "not a dict",  # invalid
         ]
