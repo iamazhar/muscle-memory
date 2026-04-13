@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
 
 concurrency:
   group: release
@@ -94,6 +95,13 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: uv run python scripts/check_release_artifacts.py "${VERSION}"
+
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
 
       - name: Extract release notes
         env:

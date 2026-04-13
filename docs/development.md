@@ -65,10 +65,11 @@ PYTHONPATH=src python -m muscle_memory list
 3. In GitHub Actions, run the `Release` workflow and pass that same version.
 
 The workflow validates version consistency, runs the test suite, builds the
-wheel and sdist, emits a `SHA256SUMS` manifest for the release artifacts,
-smoke-tests clean installs from both artifacts, extracts the matching changelog
-section as release notes, pushes tag `vX.Y.Z`, creates a GitHub release, and
-can publish to PyPI.
+wheel and sdist, smoke-tests clean installs from both artifacts, generates
+GitHub artifact attestations for the built distributions, extracts the matching
+changelog section as release notes, pushes tag `vX.Y.Z`, can publish to PyPI,
+emits a `SHA256SUMS` manifest for the release artifacts, and creates a GitHub
+release.
 
 If you also maintain the separate Homebrew tap, bump the formula there after
 the GitHub release is live so `brew update` can discover the new version.
