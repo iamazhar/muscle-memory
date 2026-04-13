@@ -9,6 +9,7 @@ import pytest
 from muscle_memory.release_artifacts import (
     ArtifactSpec,
     assert_version_output,
+    build_checksum_manifest,
     discover_release_artifacts,
 )
 
@@ -67,3 +68,24 @@ def test_assert_version_output_rejects_mismatched_version() -> None:
 def test_assert_version_output_rejects_partial_matches() -> None:
     with pytest.raises(ValueError, match=r"Expected exact version '0.8.0' in CLI output"):
         assert_version_output("muscle-memory 0.8.0rc1\n", "0.8.0")
+
+
+def test_build_checksum_manifest_writes_sorted_sha256_lines(tmp_path: Path) -> None:
+    wheel = tmp_path / "muscle_memory-0.8.0-py3-none-any.whl"
+    sdist = tmp_path / "muscle_memory-0.8.0.tar.gz"
+    wheel.write_bytes(b"wheel-bytes")
+    sdist.write_bytes(b"sdist-bytes")
+
+    manifest_path = build_checksum_manifest(
+        [
+            ArtifactSpec(kind="wheel", path=wheel),
+            ArtifactSpec(kind="sdist", path=sdist),
+        ],
+        tmp_path,
+    )
+
+    assert manifest_path == tmp_path / "SHA256SUMS"
+    assert manifest_path.read_text(encoding="utf-8").splitlines() == [
+        "9ceb18f15662bb87e54af2f5953c0484d2ef76f5444d87913360b9ef87d7296d  muscle_memory-0.8.0-py3-none-any.whl",
+        "3493dfe12f9879d916893954eb5c64591ab724bd752d2d79a7b55e15b2417239  muscle_memory-0.8.0.tar.gz",
+    ]

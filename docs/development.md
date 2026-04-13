@@ -28,6 +28,14 @@ To verify release artifacts exactly the way CI does:
 
 ```bash
 uv build
+uv run python scripts/generate_release_checksums.py $(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)
 uv run python scripts/check_release_artifacts.py $(uv run python - <<'PY'
 import tomllib
 from pathlib import Path
@@ -57,9 +65,10 @@ PYTHONPATH=src python -m muscle_memory list
 3. In GitHub Actions, run the `Release` workflow and pass that same version.
 
 The workflow validates version consistency, runs the test suite, builds the
-wheel and sdist, smoke-tests clean installs from both artifacts, extracts the
-matching changelog section as release notes, pushes tag `vX.Y.Z`, creates a
-GitHub release, and can publish to PyPI.
+wheel and sdist, emits a `SHA256SUMS` manifest for the release artifacts,
+smoke-tests clean installs from both artifacts, extracts the matching changelog
+section as release notes, pushes tag `vX.Y.Z`, creates a GitHub release, and
+can publish to PyPI.
 
 If you also maintain the separate Homebrew tap, bump the formula there after
 the GitHub release is live so `brew update` can discover the new version.

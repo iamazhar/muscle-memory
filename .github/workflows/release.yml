@@ -113,6 +113,11 @@ jobs:
         if: ${{ inputs.publish_to_pypi }}
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      - name: Generate SHA256 checksum manifest
+        env:
+          VERSION: ${{ inputs.version }}
+        run: uv run python scripts/generate_release_checksums.py "${VERSION}"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

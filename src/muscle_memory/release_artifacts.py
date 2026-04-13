@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,24 @@ def assert_version_output(output: str, version: str) -> None:
         )
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_checksum_manifest(artifacts: list[ArtifactSpec], output_dir: Path) -> Path:
+    lines = [
+        f"{_sha256(artifact.path)}  {artifact.path.name}"
+        for artifact in sorted(artifacts, key=lambda artifact: artifact.path.name)
+    ]
+    manifest_path = output_dir / "SHA256SUMS"
+    manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def _bin_dir(venv_dir: Path) -> Path:
     return venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
 
@@ -80,6 +99,30 @@ def _smoke_check_artifact(artifact: ArtifactSpec, version: str) -> None:
 def verify_release_artifacts(version: str, dist_dir: Path) -> None:
     for artifact in discover_release_artifacts(dist_dir, version):
         _smoke_check_artifact(artifact, version)
+
+
+def write_release_checksums(version: str, dist_dir: Path) -> Path:
+    artifacts = discover_release_artifacts(dist_dir, version)
+    return build_checksum_manifest(artifacts, dist_dir)
+
+
+def checksum_main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or len(args) > 2:
+        print("usage: generate_release_checksums.py <version> [dist_dir]", file=sys.stderr)
+        return 1
+
+    version = args[0]
+    dist_dir = Path(args[1]) if len(args) == 2 else Path("dist")
+
+    try:
+        manifest_path = write_release_checksums(version, dist_dir)
+    except (OSError, shutil.Error, subprocess.CalledProcessError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(str(manifest_path))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
