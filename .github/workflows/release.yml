@@ -90,6 +90,11 @@ jobs:
       - name: Validate distribution metadata
         run: uvx --from twine twine check dist/*
 
+      - name: Verify wheel and sdist install smoke tests
+        env:
+          VERSION: ${{ inputs.version }}
+        run: uv run python scripts/check_release_artifacts.py "${VERSION}"
+
       - name: Extract release notes
         env:
           VERSION: ${{ inputs.version }}

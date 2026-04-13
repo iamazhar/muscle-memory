@@ -41,3 +41,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --extra dev
       - run: uv run pytest tests/ --ignore=tests/test_behavioral.py -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv build
+      - run: uvx --from twine twine check dist/*
+      - name: Verify wheel and sdist install smoke tests
+        run: |
+          VERSION="$(uv run python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(pyproject['project']['version'])
+          PY
+          )"
+          uv run python scripts/check_release_artifacts.py "${VERSION}"
