@@ -24,7 +24,20 @@ uv tool install --from . muscle-memory
 mm --version
 ```
 
-To verify release artifacts exactly the way CI does:
+To verify release artifacts exactly the way CI does, run the release preflight:
+
+```bash
+uv run python scripts/release_preflight.py $(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)
+```
+
+If you want the lower-level steps individually:
 
 ```bash
 uv build

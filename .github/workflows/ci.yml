@@ -50,6 +50,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
+      - run: |
+          VERSION="$(uv run python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(pyproject['project']['version'])
+          PY
+          )"
+          uv run python scripts/release_preflight.py "${VERSION}"
       - run: uv build
       - run: uvx --from twine twine check dist/*
       - run: |
