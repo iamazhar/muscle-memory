@@ -111,6 +111,7 @@ For Claude Code runtime integration, `mm init --harness claude-code` installs ho
 If you are using another harness, initialize with `mm init --harness generic` and use:
 - `mm retrieve ...` for explicit retrieval before prompting your agent
 - `mm ingest transcript ...` or `mm ingest episode ...` for offline learning
+- Codex transcripts are supported via `mm ingest transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
 
 For extraction/refinement, the default LLM backend is still `claude-code`. If you prefer API-key-based extraction, set `MM_LLM_PROVIDER=openai` and `OPENAI_API_KEY=***`.
 

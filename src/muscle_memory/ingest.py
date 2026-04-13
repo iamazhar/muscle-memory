@@ -12,17 +12,37 @@ from muscle_memory.models import Episode, Outcome, Trajectory
 from muscle_memory.outcomes import infer_outcome
 
 
-def episode_from_transcript(path: Path, transcript_format: str, *, project_path: str | None = None) -> Episode:
-    if transcript_format == "claude-jsonl":
-        from muscle_memory.harness import get_harness
+def episode_from_transcript(
+    path: Path,
+    transcript_format: str,
+    *,
+    project_path: str | None = None,
+    prompt_override: str | None = None,
+) -> Episode:
+    from muscle_memory.harness import get_harness
 
-        trajectory = get_harness("claude-code").parse_transcript(path)
-        return _episode_from_trajectory(
-            trajectory,
-            session_id=path.stem,
-            project_path=project_path,
-        )
-    raise ValueError(f"Unknown transcript format: {transcript_format}")
+    harness_name_by_format = {
+        "claude-jsonl": "claude-code",
+        "codex-jsonl": "codex",
+    }
+    try:
+        harness_name = harness_name_by_format[transcript_format]
+    except KeyError as exc:
+        raise ValueError(f"Unknown transcript format: {transcript_format}") from exc
+
+    trajectory = get_harness(harness_name).parse_transcript(path)
+    _validate_transcript_signal(transcript_format, trajectory)
+
+    if transcript_format == "codex-jsonl" and not prompt_override:
+        raise ValueError("codex-jsonl ingest requires --prompt because Codex logs do not preserve the original user prompt")
+
+    if prompt_override:
+        trajectory.user_prompt = prompt_override
+    return _episode_from_trajectory(
+        trajectory,
+        session_id=path.stem,
+        project_path=project_path,
+    )
 
 
 def episode_from_json(path: Path) -> Episode:
@@ -68,11 +88,13 @@ def ingest_transcript_file(
     config: Config,
     store: Store,
     extract: bool = True,
+    prompt_override: str | None = None,
 ) -> tuple[Episode, int]:
     episode = episode_from_transcript(
         path,
         transcript_format,
         project_path=str(config.project_root) if config.project_root is not None else None,
+        prompt_override=prompt_override,
     )
     store.add_episode(episode)
     added = extract_skills_for_episode(episode, config=config, store=store) if extract else 0
@@ -105,6 +127,14 @@ def extract_skills_for_episode(episode: Episode, *, config: Config, store: Store
         if was_added:
             added += 1
     return added
+
+
+def _validate_transcript_signal(transcript_format: str, trajectory: Trajectory) -> None:
+    if trajectory.user_prompt.strip() or trajectory.assistant_turns or trajectory.tool_calls:
+        return
+    raise ValueError(
+        f"Unsupported or low-signal {transcript_format} transcript: no prompt, assistant turns, or tool calls detected"
+    )
 
 
 def _episode_from_trajectory(

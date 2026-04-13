@@ -1301,6 +1301,11 @@ def bootstrap(
 def ingest_transcript_cmd(
     transcript: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
     format: str = typer.Option("claude-jsonl", "--format", help="Transcript format."),
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        help="Original user prompt for transcript formats that do not preserve it (for example codex-jsonl).",
+    ),
     extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract skills after ingesting."),
 ) -> None:
     """Ingest a transcript from a supported harness format."""
@@ -1315,6 +1320,7 @@ def ingest_transcript_cmd(
         config=cfg,
         store=store,
         extract=extract,
+        prompt_override=prompt,
     )
     console.print(
         f"[green]Ingested episode {episode.id[:8]}[/green] from {transcript}"
