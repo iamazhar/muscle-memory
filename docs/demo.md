@@ -18,11 +18,21 @@ cd demo/orbitops
 python3 app.py
 ```
 
-Then initialize `muscle-memory` against the demo app:
+Then initialize `muscle-memory` against the demo app.
+
+If you are using Claude Code hooks directly:
 
 ```bash
 cd demo/orbitops
-mm init --scope project
+mm init --scope project --harness claude-code
+```
+
+If you want the harness-agnostic path instead:
+
+```bash
+cd demo/orbitops
+mm init --scope project --harness generic
+mm retrieve "tighten the hero copy and rerun checks" --json
 ```
 
 If you are developing from this repo without a global install:

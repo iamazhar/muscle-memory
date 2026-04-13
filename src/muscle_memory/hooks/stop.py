@@ -17,7 +17,8 @@ from typing import Any
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.debug import log_debug_event
-from muscle_memory.models import BackgroundJob, Episode, JobKind, JobStatus, ToolCall, Trajectory
+from muscle_memory.harness import get_harness
+from muscle_memory.models import BackgroundJob, Episode, JobKind, JobStatus, Trajectory
 from muscle_memory.outcomes import infer_outcome
 from muscle_memory.scorer import Scorer
 
@@ -31,30 +32,30 @@ def main(argv: list[str] | None = None) -> int:
 
     if not isinstance(payload, dict):
         return 0
-
-    try:
-        session_id = payload.get("session_id") or ""
-        transcript_path_str = payload.get("transcript_path") or ""
-        cwd = payload.get("cwd")
-    except Exception:
-        return 0
-
     cfg: Config | None = None
-    try:
-        cfg = Config.load(start_dir=Path(cwd) if cwd else None)
-        if cfg.project_root is None and cwd:
-            cfg.project_root = Path(cwd)
-    except Exception:
-        cfg = None
+    session_id = ""
+    cwd: str | None = None
+    transcript_path: Path | None = None
 
-    if not isinstance(transcript_path_str, str):
+    try:
+        raw_cwd = payload.get("cwd")
+        cwd_hint = Path(raw_cwd) if isinstance(raw_cwd, str) and raw_cwd else None
+        cfg = Config.load(start_dir=cwd_hint)
+        if cfg.project_root is None and cwd_hint is not None:
+            cfg.project_root = cwd_hint
+        adapter = get_harness(cfg.harness)
+        session_id = adapter.extract_session_id(payload)
+        cwd_path = adapter.extract_cwd(payload)
+        cwd = str(cwd_path) if cwd_path is not None else (raw_cwd if isinstance(raw_cwd, str) else None)
+        transcript_path = adapter.extract_transcript_path(payload)
+    except Exception:
         return 0
 
-    if not transcript_path_str:
+    if transcript_path is None:
         if cfg is not None:
             log_debug_event(cfg, component="stop", event="missing_transcript_path", session_id=session_id)
         return 0
-    transcript_path = Path(transcript_path_str).expanduser()
+
     if not transcript_path.exists():
         if cfg is not None:
             log_debug_event(
@@ -69,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if cfg is None:
             cfg = Config.load(start_dir=Path(cwd) if cwd else None)
+        adapter = get_harness(cfg.harness)
         if not cfg.db_path.exists():
             log_debug_event(cfg, component="stop", event="no_db", session_id=session_id)
             return 0
@@ -76,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
             log_debug_event(cfg, component="stop", event="paused", session_id=session_id)
             return 0
 
-        trajectory = parse_transcript(transcript_path)
+        trajectory = adapter.parse_transcript(transcript_path)
         if not trajectory.tool_calls and not trajectory.assistant_turns:
             log_debug_event(cfg, component="stop", event="empty_trajectory", session_id=session_id)
             return 0
@@ -176,80 +178,9 @@ def _any_skill_needs_refinement(store: Store) -> bool:
 
 
 def parse_transcript(path: Path) -> Trajectory:
-    """Parse a Claude Code session JSONL into a Trajectory."""
-    user_prompt = ""
-    user_followups: list[str] = []
-    tool_calls: list[ToolCall] = []
-    assistant_turns: list[str] = []
-    # index tool uses by id so we can attach results
-    pending_by_id: dict[str, ToolCall] = {}
-
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            rec_type = rec.get("type")
-            msg = rec.get("message") or {}
-
-            if rec_type == "user":
-                content = msg.get("content")
-                if isinstance(content, str):
-                    if not user_prompt:
-                        user_prompt = content
-                    else:
-                        user_followups.append(content)
-                elif isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict):
-                            if block.get("type") == "tool_result":
-                                tool_id = block.get("tool_use_id")
-                                result_content = block.get("content")
-                                is_error = block.get("is_error", False)
-                                result_text = _flatten_content(result_content)
-                                if tool_id and tool_id in pending_by_id:
-                                    tc = pending_by_id[tool_id]
-                                    if is_error:
-                                        tc.error = result_text
-                                    else:
-                                        tc.result = result_text
-                            elif block.get("type") == "text":
-                                text = block.get("text", "")
-                                if not user_prompt:
-                                    user_prompt = text
-                                else:
-                                    user_followups.append(text)
-
-            elif rec_type == "assistant":
-                content = msg.get("content")
-                if isinstance(content, list):
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        btype = block.get("type")
-                        if btype == "text":
-                            assistant_turns.append(block.get("text", ""))
-                        elif btype == "tool_use":
-                            tc = ToolCall(
-                                name=block.get("name", "unknown"),
-                                arguments=block.get("input", {}) or {},
-                            )
-                            tool_calls.append(tc)
-                            tool_id = block.get("id")
-                            if tool_id:
-                                pending_by_id[tool_id] = tc
-
-    return Trajectory(
-        user_prompt=user_prompt,
-        user_followup=" ".join(user_followups),
-        tool_calls=tool_calls,
-        assistant_turns=assistant_turns,
-    )
+    """Backward-compatible wrapper around the Claude Code harness parser."""
+    adapter = get_harness("claude-code")
+    return adapter.parse_transcript(path)
 
 
 def _flatten_content(content: Any) -> str:
@@ -319,7 +250,7 @@ def _fire_async_extraction(episode_id: str, db_path: Path, *, job_id: str | None
             close_fds=True,
         )
     except Exception as exc:
-        if store is not None:
+        if store is not None and job_id is not None:
             store.update_job_status(job_id, status=JobStatus.FAILED, error=str(exc))
         # if async fails, write to a queue file for later processing
         queue_path = db_path.parent / "mm.extract_queue.txt"
@@ -356,7 +287,7 @@ def _fire_async_refinement(db_path: Path, *, job_id: str | None = None) -> None:
             close_fds=True,
         )
     except Exception as exc:
-        if store is not None:
+        if store is not None and job_id is not None:
             store.update_job_status(job_id, status=JobStatus.FAILED, error=str(exc))
         pass  # best-effort; never block the hook
 

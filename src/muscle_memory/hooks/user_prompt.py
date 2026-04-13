@@ -20,6 +20,7 @@ from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.debug import log_debug_event
 from muscle_memory.embeddings import make_embedder
+from muscle_memory.harness import get_harness
 from muscle_memory.retriever import RetrievedSkill, Retriever
 
 
@@ -41,21 +42,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        prompt = _extract_prompt(payload)
+        raw_cwd = payload.get("cwd")
+        cwd_hint = Path(raw_cwd) if isinstance(raw_cwd, str) and raw_cwd else None
+        cfg = Config.load(start_dir=cwd_hint)
+        if cfg.project_root is None and cwd_hint is not None:
+            cfg.project_root = cwd_hint
+        adapter = get_harness(cfg.harness)
+        prompt = adapter.extract_prompt(payload)
+        session_id = adapter.extract_session_id(payload)
+        cwd_path = adapter.extract_cwd(payload)
+        cwd = str(cwd_path) if cwd_path is not None else raw_cwd
     except Exception:
         return 0
 
     if not prompt:
         return 0
 
-    session_id = payload.get("session_id") or ""
-    cwd = payload.get("cwd")
-    cfg: Config | None = None
+    # cfg already resolved above
 
     # Skip direct shell-escape commands: the user is running a tool,
     # not asking a question. Matching skills against "mm list" or "ls"
     # just bloats invocation counts without signal.
-    if _is_shell_escape(prompt):
+    if adapter.is_shell_escape(prompt):
         try:
             cfg = Config.load(start_dir=Path(cwd) if cwd else None)
             log_debug_event(
@@ -154,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass  # nice-to-have, not critical
 
-    context = _format_context(hits)
+    context = adapter.format_context(hits)
     sys.stdout.write(context)
     sys.stdout.flush()
     return 0

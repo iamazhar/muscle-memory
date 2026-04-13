@@ -19,6 +19,8 @@ def test_top_level_help_is_trimmed() -> None:
     assert "stats" in out
     assert "bootstrap" in out
     assert "refine" in out
+    assert "retrieve" in out
+    assert "ingest" in out
     assert "maint" in out
     assert "share" in out
     assert "review" in out

@@ -66,9 +66,11 @@ Two options:
 ```bash
 # option 1: via the editable venv (after ./scripts/dev-sync)
 .venv/bin/mm list
+.venv/bin/mm init --harness generic
 
 # option 2: via PYTHONPATH
 PYTHONPATH=src python -m muscle_memory list
+PYTHONPATH=src python -m muscle_memory retrieve "run the tests" --json
 ```
 
 ## Publishing a release
@@ -111,17 +113,22 @@ src/muscle_memory/
 ├── db.py             # SQLite + sqlite-vec DAO
 ├── config.py         # env var + path resolution
 ├── embeddings.py     # pluggable Embedder (fastembed, openai, voyage)
-├── llm.py            # pluggable LLM (anthropic default)
+├── llm.py            # pluggable LLM backend for extraction/refinement
+├── ingest.py         # offline transcript / episode ingest pipeline
 ├── extractor.py      # trajectory → candidate Skills
 ├── outcomes.py       # heuristic success/failure detection
-├── retriever.py      # query → top-k Skills (fast path for hooks)
+├── retriever.py      # query → top-k Skills (hooks or explicit retrieve)
 ├── scorer.py         # credit assignment + pruning
 ├── bootstrap.py      # seed from Claude Code session history
 ├── cli.py            # `mm` typer app
+├── harness/
+│   ├── base.py       # harness adapter interface
+│   ├── claude_code.py# Claude Code runtime adapter
+│   └── generic.py    # harness-agnostic / offline-only adapter
 ├── hooks/
 │   ├── user_prompt.py   # UserPromptSubmit handler
 │   ├── stop.py          # Stop handler + transcript parser
-│   └── install.py       # wires .claude/settings.json
+│   └── install.py       # routes init/install through harness adapters
 └── prompts/
     └── extract.md    # skill extraction prompt (version-controlled)
 ```

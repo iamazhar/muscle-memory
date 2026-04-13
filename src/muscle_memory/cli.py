@@ -14,8 +14,9 @@ from rich.rule import Rule
 from rich.table import Table
 
 from muscle_memory import __version__
-from muscle_memory.config import Config
+from muscle_memory.config import DEFAULT_HARNESS, Config
 from muscle_memory.db import Store
+from muscle_memory.embeddings import make_embedder
 from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Outcome, Scope, Skill
 
 console = Console()
@@ -37,6 +38,9 @@ app.add_typer(review_app, name="review")
 
 jobs_app = typer.Typer(help="Inspect and retry tracked background jobs.")
 app.add_typer(jobs_app, name="jobs")
+
+ingest_app = typer.Typer(help="Ingest transcripts or normalized episodes from any harness.")
+app.add_typer(ingest_app, name="ingest")
 
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
 app.add_typer(hook_app, name="hook", hidden=True)
@@ -183,33 +187,43 @@ def init(
         "-s",
         help="project (default) or global",
     ),
+    harness: str = typer.Option(
+        DEFAULT_HARNESS,
+        "--harness",
+        help="Runtime harness to integrate with (for example: claude-code or generic).",
+    ),
 ) -> None:
     """Set up muscle-memory for the current project.
 
-    Creates `.claude/mm.db` and wires `UserPromptSubmit` + `Stop` hooks
-    into `.claude/settings.json`.
+    Creates `.claude/mm.db` and installs harness-specific runtime integration when supported.
     """
     from muscle_memory.hooks.install import install as do_install
 
     try:
-        report = do_install(scope=scope)
+        report = do_install(scope=scope, harness=harness)
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
+    settings_display = str(report.settings_path) if report.settings_path is not None else "(not used)"
+    next_step = (
+        "Next: use your harness as usual. Optionally seed with [bold]mm bootstrap[/bold]."
+        if harness == "claude-code"
+        else "\nNext: ingest transcripts or use [bold]mm retrieve[/bold] from your harness/orchestrator."
+    )
+
     console.print(
         Panel.fit(
             f"[green]muscle-memory initialized[/green]\n\n"
+            f"Harness: [bold]{harness}[/bold]\n"
             f"DB: [bold]{report.db_path}[/bold]\n"
-            f"Settings: [bold]{report.settings_path}[/bold]\n"
-            f"Installed hooks: {', '.join(report.installed_events) or '(already present)'}\n"
+            f"Settings: [bold]{settings_display}[/bold]\n"
+            f"Installed hooks: {', '.join(report.installed_events) or '(none)'}\n"
             f"Already present: {', '.join(report.already_present) or '—'}",
             title="init complete",
         )
     )
-    console.print(
-        "\nNext: use Claude Code as usual. Optionally seed with [bold]mm bootstrap[/bold].",
-    )
+    console.print(next_step)
 
 
 @app.command("list")
@@ -273,6 +287,48 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
             title=f"skill {_short_id(skill.id)}",
         )
     )
+
+
+@app.command()
+def retrieve(
+    prompt: str = typer.Argument(..., help="Prompt/task to retrieve relevant skills for."),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Retrieve relevant skills without relying on harness-specific prompt hooks."""
+    from muscle_memory.retriever import Retriever
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    embedder = make_embedder(cfg)
+    hits = Retriever(store, embedder, cfg).retrieve(prompt)
+
+    if as_json:
+        payload = []
+        for hit in hits:
+            item = _skill_to_dict(hit.skill)
+            item["distance"] = hit.distance
+            item["score_bonus"] = hit.score_bonus
+            payload.append(item)
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not hits:
+        console.print("[dim]No matching skills.[/dim]")
+        return
+
+    table = Table(title=f"retrieved skills ({len(hits)})")
+    table.add_column("id", style="dim", width=10)
+    table.add_column("maturity", width=12)
+    table.add_column("distance", justify="right")
+    table.add_column("activation")
+    for hit in hits:
+        table.add_row(
+            _short_id(hit.skill.id),
+            _format_maturity(hit.skill.maturity),
+            f"{hit.distance:.3f}",
+            hit.skill.activation,
+        )
+    console.print(table)
 
 
 @review_app.command("list")
@@ -1195,7 +1251,6 @@ def bootstrap(
 ) -> None:
     """Seed the skill store from existing Claude Code session history."""
     from muscle_memory.bootstrap import bootstrap as run_bootstrap
-    from muscle_memory.embeddings import make_embedder
     from muscle_memory.llm import make_llm
 
     cfg = _load_config()
@@ -1240,6 +1295,49 @@ def bootstrap(
             "and re-run `mm bootstrap`.[/dim]"
         )
         raise typer.Exit(1)
+
+
+@ingest_app.command("transcript")
+def ingest_transcript_cmd(
+    transcript: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    format: str = typer.Option("claude-jsonl", "--format", help="Transcript format."),
+    extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract skills after ingesting."),
+) -> None:
+    """Ingest a transcript from a supported harness format."""
+    from muscle_memory.ingest import ingest_transcript_file
+
+    cfg = _load_config()
+    cfg.ensure_db_dir()
+    store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+    episode, added = ingest_transcript_file(
+        transcript,
+        format,
+        config=cfg,
+        store=store,
+        extract=extract,
+    )
+    console.print(
+        f"[green]Ingested episode {episode.id[:8]}[/green] from {transcript}"
+        f" ([dim]{added} skills added[/dim])"
+    )
+
+
+@ingest_app.command("episode")
+def ingest_episode_cmd(
+    episode_file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract skills after ingesting."),
+) -> None:
+    """Ingest a normalized episode JSON file."""
+    from muscle_memory.ingest import ingest_episode_file
+
+    cfg = _load_config()
+    cfg.ensure_db_dir()
+    store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+    episode, added = ingest_episode_file(episode_file, config=cfg, store=store, extract=extract)
+    console.print(
+        f"[green]Ingested episode {episode.id[:8]}[/green] from {episode_file}"
+        f" ([dim]{added} skills added[/dim])"
+    )
 
 
 @app.command("extract-episode", hidden=True)
