@@ -15,10 +15,14 @@ class FakeEmbedder:
 
     dims = 4
 
+    def __init__(self) -> None:
+        self.embed_one_calls = 0
+
     def embed(self, texts: Iterable[str]) -> list[list[float]]:
         return [self.embed_one(t) for t in texts]
 
     def embed_one(self, text: str) -> list[float]:
+        self.embed_one_calls += 1
         # Use word fingerprint as a crude deterministic vector.
         words = text.lower().split()
         v = [0.0, 0.0, 0.0, 0.0]
@@ -100,6 +104,44 @@ def test_retriever_filters_obviously_unrelated_prompt(tmp_db: Store, sample_conf
     retriever = Retriever(tmp_db, embedder, sample_config)
     hits = retriever.retrieve("What is the capital of France?")
     assert hits == []
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is True
+
+
+def test_retriever_skips_embedding_for_obvious_no_match(tmp_db: Store, sample_config: Config) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When Kubernetes pods are CrashLoopBackOff in production",
+        execution="inspect pods",
+        termination="root cause found",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+    embedder.embed_one_calls = 0
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    hits = retriever.retrieve("What is the capital of France?")
+
+    assert hits == []
+    assert embedder.embed_one_calls == 0
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is True
+
+
+def test_retriever_still_embeds_when_tokens_overlap(tmp_db: Store, sample_config: Config) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When pytest fails with ModuleNotFoundError",
+        execution="inspect the import path",
+        termination="tests pass",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+    embedder.embed_one_calls = 0
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    _hits = retriever.retrieve("pytest import errors in tests")
+
+    assert embedder.embed_one_calls == 1
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is False
 
 
 def test_retriever_does_not_activate_quarantined_candidate(

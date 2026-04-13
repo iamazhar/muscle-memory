@@ -320,6 +320,69 @@ class TestUserPromptHook:
         assert rc == 0
         assert stdout.getvalue() == ""
 
+    def test_no_db_yet_writes_debug_log_when_enabled(self, project_dir: Path) -> None:
+        nonexistent_db = project_dir / "nowhere" / "mm.db"
+        stdin = StringIO(
+            json.dumps(
+                {
+                    "session_id": "debug-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "real question",
+                }
+            )
+        )
+        stdout = StringIO()
+        os.environ["MM_DB_PATH"] = str(nonexistent_db)
+        os.environ["MM_DEBUG"] = "1"
+        try:
+            with patch("sys.stdin", stdin), patch("sys.stdout", stdout):
+                rc = user_prompt_main()
+        finally:
+            os.environ.pop("MM_DB_PATH", None)
+            os.environ.pop("MM_DEBUG", None)
+
+        assert rc == 0
+        assert stdout.getvalue() == ""
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        assert entries[-1]["component"] == "user_prompt"
+        assert entries[-1]["event"] == "no_db"
+        assert entries[-1]["session_id"] == "debug-sess"
+
+    def test_matching_prompt_logs_retrieval_timings(self, seeded_store: Store, project_dir: Path) -> None:
+        timed_cfg = Config(
+            db_path=seeded_store.db_path,
+            scope=Scope.PROJECT,
+            project_root=project_dir,
+            embedding_dims=16,
+            debug_enabled=True,
+        )
+        with (
+            patch("muscle_memory.hooks.user_prompt.Config.load", return_value=timed_cfg),
+            patch(
+                "muscle_memory.hooks.user_prompt.make_embedder",
+                return_value=DeterministicEmbedder(),
+            ),
+        ):
+            rc, _out = self._run_hook_with_stdin(
+                {
+                    "session_id": "timed-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "When the user is trying to debug a hidden .pth file problem on mac",
+                },
+                seeded_store.db_path,
+            )
+
+        assert rc == 0
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        timed = [e for e in entries if e.get("event") == "hits_returned" and e.get("session_id") == "timed-sess"]
+        assert timed
+        assert "retrieve_ms" in timed[-1]
+        assert "activation_record_ms" in timed[-1]
+        assert "total_ms" in timed[-1]
+
     def test_formatted_context_includes_visibility_protocol(self) -> None:
         """The injection must tell Claude to emit the 🧠 marker."""
         skill = Skill(
@@ -449,18 +512,21 @@ class TestScoringLoop:
         )
         tmp_db.add_skill(skill, embedding=[0.1, 0.2, 0.3, 0.4])
 
-        # Simulate 2 successful invocations
-        for _ in range(2):
+        # Simulate 2 successful invocations from distinct source episodes
+        for idx in range(2):
             skill.invocations += 1
             skill.successes += 1
+            skill.source_episode_ids.append(f"ep{idx+1}")
             skill.recompute_score()
             skill.recompute_maturity()
 
         assert skill.maturity is Maturity.LIVE
 
-        # 10+ successes → proven
-        skill.invocations = 10
+        # 10+ successes with strong score and evidence → proven
+        skill.invocations = 12
         skill.successes = 10
+        skill.failures = 2
+        skill.source_episode_ids = [f"ep{i}" for i in range(10)]
         skill.recompute_score()
         skill.recompute_maturity()
         assert skill.maturity is Maturity.PROVEN

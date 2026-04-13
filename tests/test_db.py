@@ -21,6 +21,7 @@ def test_update_skill(tmp_db: Store, sample_skill: Skill) -> None:
 
     sample_skill.invocations = 5
     sample_skill.successes = 4
+    sample_skill.source_episode_ids = ["ep1", "ep2"]
     sample_skill.recompute_score()
     sample_skill.recompute_maturity()
     tmp_db.update_skill(sample_skill)

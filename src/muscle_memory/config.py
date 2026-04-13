@@ -87,6 +87,7 @@ class Config:
 
     # misc
     log_level: str = "INFO"
+    debug_enabled: bool = False
 
     extra: dict[str, str] = field(default_factory=dict)
 
@@ -154,6 +155,7 @@ class Config:
             llm_model=llm_model,
             llm_api_key=llm_api_key,
             log_level=_env("MM_LOG_LEVEL", "INFO") or "INFO",
+            debug_enabled=(_env("MM_DEBUG", "0") or "0").lower() in {"1", "true", "yes", "on"},
         )
 
     def ensure_db_dir(self) -> None:

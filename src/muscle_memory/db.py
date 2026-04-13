@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from muscle_memory.models import (
+    BackgroundJob,
     Episode,
+    JobKind,
+    JobStatus,
     Maturity,
     Outcome,
     Scope,
@@ -28,7 +31,7 @@ from muscle_memory.models import (
 if TYPE_CHECKING:
     from muscle_memory.eval import EvalLabel
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _l2_distance(a: list[float], b: list[float]) -> float:
@@ -156,6 +159,21 @@ class Store:
 
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_labels_unique
                     ON eval_labels(label_type, episode_id, skill_id);
+
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+                CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind);
+                CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
                 """
             )
 
@@ -244,6 +262,26 @@ class Store:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_labels_unique "
                 "ON eval_labels(label_type, episode_id)"
             )
+
+        # v5 — tracked async jobs
+        if current_version < 5:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)")
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
@@ -667,10 +705,119 @@ class Store:
         finally:
             conn.close()
 
+    # ------------------------------------------------------------------
+    # jobs
+    # ------------------------------------------------------------------
+
+    def add_job(self, job: BackgroundJob) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, kind, status, payload, attempts, error, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job.id,
+                    job.kind.value,
+                    job.status.value,
+                    _dumps(job.payload),
+                    job.attempts,
+                    job.error,
+                    _iso(job.created_at),
+                    _iso(job.updated_at),
+                ),
+            )
+
+    def get_job(self, job_id: str) -> BackgroundJob | None:
+        conn = self._open()
+        try:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return _row_to_job(row) if row else None
+        finally:
+            conn.close()
+
+    def list_jobs(
+        self,
+        *,
+        limit: int | None = 50,
+        status: JobStatus | None = None,
+        kind: JobKind | None = None,
+    ) -> list[BackgroundJob]:
+        conn = self._open()
+        try:
+            sql = "SELECT * FROM jobs"
+            params: list[Any] = []
+            clauses: list[str] = []
+            if status is not None:
+                clauses.append("status = ?")
+                params.append(status.value)
+            if kind is not None:
+                clauses.append("kind = ?")
+                params.append(kind.value)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY created_at DESC"
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
+            rows = conn.execute(sql, tuple(params)).fetchall()
+            return [_row_to_job(r) for r in rows]
+        finally:
+            conn.close()
+
+    def update_job_status(
+        self,
+        job_id: str,
+        *,
+        status: JobStatus,
+        attempts: int | None = None,
+        error: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        with self.batch() as conn:
+            existing = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if existing is None:
+                raise KeyError(f"job not found: {job_id}")
+            next_attempts = int(existing["attempts"]) if attempts is None else attempts
+            next_error = error
+            if error is None and status is not JobStatus.FAILED:
+                next_error = None
+            elif error is None:
+                next_error = existing["error"]
+            next_payload = existing["payload"] if payload is None else _dumps(payload)
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?, attempts = ?, error = ?, payload = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status.value,
+                    next_attempts,
+                    next_error,
+                    next_payload,
+                    _iso(datetime.now(UTC)),
+                    job_id,
+                ),
+            )
+
 
 # ----------------------------------------------------------------------
 # row -> model hydration helpers
 # ----------------------------------------------------------------------
+
+
+def _row_to_job(row: sqlite3.Row) -> BackgroundJob:
+    return BackgroundJob(
+        id=row["id"],
+        kind=JobKind(row["kind"]),
+        status=JobStatus(row["status"]),
+        payload=json.loads(row["payload"] or "{}"),
+        attempts=int(row["attempts"]),
+        error=row["error"],
+        created_at=_parse_iso(row["created_at"]) or datetime.now(UTC),
+        updated_at=_parse_iso(row["updated_at"]) or datetime.now(UTC),
+    )
 
 
 def _row_to_skill(row: sqlite3.Row) -> Skill:

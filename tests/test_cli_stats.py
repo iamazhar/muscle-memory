@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 from muscle_memory.cli import _ensure_utc, _relative_time, app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.models import Episode, Maturity, Outcome, Scope, Skill, Trajectory
+from muscle_memory.models import BackgroundJob, Episode, JobKind, JobStatus, Maturity, Outcome, Scope, Skill, ToolCall, Trajectory
 
 runner = CliRunner()
 
@@ -66,10 +66,11 @@ def _make_episode(
     outcome: Outcome = Outcome.SUCCESS,
     reward: float = 0.5,
     activated_skills: list[str] | None = None,
+    tool_calls: list[ToolCall] | None = None,
 ) -> Episode:
     return Episode(
         user_prompt="do something",
-        trajectory=Trajectory(user_prompt="do something"),
+        trajectory=Trajectory(user_prompt="do something", tool_calls=tool_calls or []),
         outcome=outcome,
         reward=reward,
         activated_skills=activated_skills or [],
@@ -260,6 +261,13 @@ class TestStatsPopulated:
 
     def test_json_output(self, populated_store: tuple[Config, Store]) -> None:
         cfg, store = populated_store
+        store.add_job(BackgroundJob(kind=JobKind.EXTRACT, payload={}, status=JobStatus.PENDING))
+        store.add_job(BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="boom"))
+        (cfg.project_root / ".claude" / "mm.debug.log").write_text(
+            '{"component":"stop","event":"spawned_extraction"}\n'
+            '{"component":"user_prompt","event":"hits_returned","retrieve_ms":10.0,"embed_ms":3.0,"search_ms":1.0,"rerank_ms":0.5,"total_ms":11.0}\n',
+            encoding="utf-8"
+        )
 
         with (
             patch("muscle_memory.cli._load_config", return_value=cfg),
@@ -284,6 +292,13 @@ class TestStatsPopulated:
         assert data["new_7d"] >= 1
         assert "attention" in data
         assert "pending_review" in data["attention"]
+        assert data["attention"]["pending_jobs"] == 1
+        assert data["attention"]["failed_jobs"] == 1
+        assert data["attention"]["debug_log_present"] is True
+        assert data["attention"]["retrieval_samples"] == 1
+        assert data["attention"]["avg_retrieve_ms"] == 10.0
+        assert "governance" in data
+        assert set(data["governance"].keys()) == {"demote", "refine", "review"}
         assert "top_skills" in data
         assert "struggling_skills" in data
 
@@ -317,11 +332,19 @@ class TestStatsAttention:
             maturity=Maturity.PROVEN,
             last_used_at=datetime.now(UTC) - timedelta(hours=1),
         )
+        skill.execution = "1. Run `Do Y`"
+        skill.source_episode_ids = [f"ep{i}" for i in range(14)]
         store.add_skill(skill)
 
-        # All success episodes
+        # All success episodes with matching behavior
         for _ in range(5):
-            store.add_episode(_make_episode(outcome=Outcome.SUCCESS, activated_skills=[skill.id]))
+            store.add_episode(
+                _make_episode(
+                    outcome=Outcome.SUCCESS,
+                    activated_skills=[skill.id],
+                    tool_calls=[ToolCall(name="Bash", arguments={"command": "Do Y"}, result="ok")],
+                )
+            )
 
         with (
             patch("muscle_memory.cli._load_config", return_value=cfg),

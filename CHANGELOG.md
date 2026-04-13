@@ -5,6 +5,28 @@ All notable changes to `muscle-memory` will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `MM_DEBUG` hook logging to `.claude/mm.debug.log` for `user-prompt` and `stop` lifecycle visibility
+- Tracked async background jobs in SQLite with `mm jobs list`, `mm jobs retry`, and `mm jobs retry-failed`
+- `mm doctor` runtime diagnostics for DB/job/debug-log inspection
+- Retrieval telemetry in debug logs plus surfaced summaries in `mm doctor` and `mm stats`
+- Cheap lexical prefilter in the retriever to skip embedding on obvious no-match prompts
+- Eval-driven governance recommendations via `evaluate_governance()` and the `mm maint govern` command
+- Richer `mm review list` output with candidate evidence, promotion readiness, and review reasons
+
+### Changed
+
+- Promotion to `live` now requires repeated evidence from distinct source episodes
+- `proven` promotion now requires stronger sustained performance
+- Skills can demote from `proven` to `live` or `candidate` as performance degrades
+- `mm stats` now surfaces pending/failed jobs, debug-log presence, retrieval telemetry, and governance signals
+- `mm doctor` now explains the latest retrieval decision in operator-friendly language
+
+---
+
 ## [0.8.0] — 2026-04-11
 
 ### Added

@@ -14,6 +14,7 @@ formats into an `<additional_context>` block.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -137,15 +138,40 @@ def _passes_relevance_gate(query_tokens: set[str], result: RetrievedSkill) -> bo
     return len(query_tokens & activation_tokens) >= 2
 
 
+@dataclass
+class RetrievalDiagnostics:
+    embed_ms: float = 0.0
+    search_ms: float = 0.0
+    rerank_ms: float = 0.0
+    total_ms: float = 0.0
+    candidate_hits: int = 0
+    final_hits: int = 0
+    lexical_prefilter_skipped: bool = False
+
+
 class Retriever:
     def __init__(self, store: Store, embedder: Embedder, config: Config):
         self.store = store
         self.embedder = embedder
         self.config = config
+        self.last_diagnostics = RetrievalDiagnostics()
+
+    def _passes_lexical_prefilter(self, query_tokens: set[str]) -> bool:
+        if len(query_tokens) < 3:
+            return True
+        for skill in self.store.list_skills(limit=None):
+            if skill.maturity is Maturity.CANDIDATE:
+                continue
+            if query_tokens & _content_tokens(skill.activation):
+                return True
+        return False
 
     def retrieve(self, query: str, *, top_k: int | None = None) -> list[RetrievedSkill]:
         """Return top-k skills relevant to `query`, ranked."""
+        start = time.perf_counter()
+        self.last_diagnostics = RetrievalDiagnostics()
         if not query or not query.strip():
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
         # Fast path: if the store has no skills yet, don't pay the
@@ -153,23 +179,36 @@ class Retriever:
         # for the first few Claude Code sessions after `mm init`,
         # before any skills have been extracted.
         if self.store.count_skills() == 0:
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
+            return []
+
+        query_tokens = _content_tokens(query)
+        if not self._passes_lexical_prefilter(query_tokens):
+            self.last_diagnostics.lexical_prefilter_skipped = True
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
         k = top_k if top_k is not None else self.config.retrieval_top_k
 
+        embed_start = time.perf_counter()
         query_emb = self.embedder.embed_one(query)
+        self.last_diagnostics.embed_ms = (time.perf_counter() - embed_start) * 1000
 
         # fetch a larger candidate pool, then rerank
+        search_start = time.perf_counter()
         hits = self.store.search_skills_by_embedding(
             query_emb,
             top_k=max(k * 3, 10),
             scope=None,  # project + global both visible
         )
+        self.last_diagnostics.search_ms = (time.perf_counter() - search_start) * 1000
+        self.last_diagnostics.candidate_hits = len(hits)
 
         if not hits:
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
-        query_tokens = _content_tokens(query)
+        rerank_start = time.perf_counter()
         results: list[RetrievedSkill] = []
         for skill, distance in hits:
             if distance > 1.5:  # absurdly far
@@ -186,8 +225,12 @@ class Retriever:
         floor = self.config.retrieval_similarity_floor
         results = [r for r in results if r.final_rank <= (2.0 - floor * 2.0)]
         results = [r for r in results if _passes_relevance_gate(query_tokens, r)]
+        final_results = results[:k]
+        self.last_diagnostics.rerank_ms = (time.perf_counter() - rerank_start) * 1000
+        self.last_diagnostics.final_hits = len(final_results)
+        self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
 
-        return results[:k]
+        return final_results
 
     def mark_activated(self, retrieved: list[RetrievedSkill]) -> None:
         """Bump invocation count and last-used timestamp for activated skills."""

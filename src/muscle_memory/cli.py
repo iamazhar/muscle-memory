@@ -16,7 +16,7 @@ from rich.table import Table
 from muscle_memory import __version__
 from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.models import Maturity, Outcome, Scope, Skill
+from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Outcome, Scope, Skill
 
 console = Console()
 app = typer.Typer(
@@ -34,6 +34,9 @@ app.add_typer(share_app, name="share")
 
 review_app = typer.Typer(help="Review quarantined candidate skills.")
 app.add_typer(review_app, name="review")
+
+jobs_app = typer.Typer(help="Inspect and retry tracked background jobs.")
+app.add_typer(jobs_app, name="jobs")
 
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
 app.add_typer(hook_app, name="hook", hidden=True)
@@ -290,7 +293,7 @@ def review_list(
         payload = []
         for s in skills:
             item = _skill_to_dict(s)
-            item["source_evidence"] = len(dict.fromkeys(s.source_episode_ids))
+            item.update(_candidate_review_metadata(s))
             payload.append(item)
         typer.echo(json.dumps(payload, indent=2))
         return
@@ -303,13 +306,16 @@ def review_list(
     table.add_column("id", style="dim", width=10)
     table.add_column("evidence", justify="right", width=8)
     table.add_column("created", width=10)
+    table.add_column("reason")
     table.add_column("activation")
 
     for s in skills:
+        meta = _candidate_review_metadata(s)
         table.add_row(
             _short_id(s.id),
-            str(len(dict.fromkeys(s.source_episode_ids))),
+            str(meta["source_evidence"]),
             _relative_time(s.created_at),
+            str(meta["review_reason"]),
             s.activation,
         )
     console.print(table)
@@ -339,10 +345,102 @@ def review_reject(skill_id: str = typer.Argument(..., help="Skill id or prefix."
     store = _open_store(cfg)
     skill = _resolve_skill(store, skill_id)
     store.delete_skill(skill.id)
-    console.print(f"[green]Rejected[/green] {skill.id[:8]} and deleted it.")
+    console.print(f"[green]Rejected and deleted {skill.id[:8]}.[/green]")
 
 
-@app.command()
+@jobs_app.command("list")
+def jobs_list(
+    status: JobStatus | None = typer.Option(None, "--status", help="Filter by job status."),
+    kind: JobKind | None = typer.Option(None, "--kind", help="Filter by job kind."),
+    limit: int = typer.Option(50, "--limit", "-n"),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """List tracked background jobs."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    jobs = store.list_jobs(limit=limit, status=status, kind=kind)
+
+    if as_json:
+        typer.echo(json.dumps([_job_to_dict(j) for j in jobs], indent=2))
+        return
+
+    if not jobs:
+        console.print("[dim]No tracked jobs.[/dim]")
+        return
+
+    table = Table(title=f"tracked jobs ({len(jobs)})")
+    table.add_column("id", style="dim", width=10)
+    table.add_column("kind", width=10)
+    table.add_column("status", width=10)
+    table.add_column("attempts", justify="right")
+    table.add_column("updated")
+    table.add_column("error")
+
+    for job in jobs:
+        table.add_row(
+            _short_id(job.id),
+            job.kind.value,
+            job.status.value,
+            str(job.attempts),
+            _relative_time(job.updated_at),
+            (job.error or "")[:60],
+        )
+    console.print(table)
+
+
+@jobs_app.command("retry")
+def jobs_retry(job_id: str = typer.Argument(..., help="Job id or prefix.")) -> None:
+    """Retry a failed tracked background job."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    job = _resolve_job(store, job_id)
+
+    if job.status is not JobStatus.FAILED:
+        console.print(f"[yellow]Job {job.id[:8]} is {job.status.value}, not failed.[/yellow]")
+        raise typer.Exit(1)
+
+    store.update_job_status(job.id, status=JobStatus.PENDING, attempts=job.attempts + 1, error=None)
+    updated = store.get_job(job.id)
+    assert updated is not None
+    _spawn_job_retry(updated, cfg)
+    console.print(f"[green]Requeued {updated.kind.value} job {updated.id[:8]}.[/green]")
+
+
+@jobs_app.command("retry-failed")
+def jobs_retry_failed() -> None:
+    """Retry all failed tracked jobs."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    failed_jobs = store.list_jobs(limit=None, status=JobStatus.FAILED)
+    if not failed_jobs:
+        console.print("[green]No failed jobs to retry.[/green]")
+        return
+
+    for job in failed_jobs:
+        store.update_job_status(job.id, status=JobStatus.PENDING, attempts=job.attempts + 1, error=None)
+        updated = store.get_job(job.id)
+        assert updated is not None
+        _spawn_job_retry(updated, cfg)
+
+    console.print(f"[green]Requeued {len(failed_jobs)} failed job(s).[/green]")
+
+
+def _spawn_job_retry(job: BackgroundJob, cfg: Config) -> None:
+    from muscle_memory.hooks.stop import _fire_async_extraction, _fire_async_refinement
+
+    if job.kind is JobKind.EXTRACT:
+        episode_id = str(job.payload.get("episode_id", ""))
+        if not episode_id:
+            raise RuntimeError("extract job missing episode_id")
+        _fire_async_extraction(episode_id, cfg.db_path, job_id=job.id)
+        return
+    if job.kind is JobKind.REFINE:
+        _fire_async_refinement(cfg.db_path, job_id=job.id)
+        return
+    raise RuntimeError(f"unsupported job kind: {job.kind.value}")
+
+
+
 def log(
     outcome: Outcome | None = typer.Option(None, "--outcome", "-o", help="Filter by outcome."),
     limit: int = typer.Option(20, "--limit", "-n"),
@@ -442,6 +540,7 @@ def stats(
     total_refinements = sum(s.refinement_count for s in refined_skills)
 
     # Attention metrics
+    from muscle_memory.eval.evaluator import evaluate_governance
     from muscle_memory.refine import should_auto_refine
 
     need_refine = [s for s in skills if should_auto_refine(s)]
@@ -458,6 +557,17 @@ def stats(
     ]
     unknown_count = sum(1 for ep in episodes if ep.outcome is Outcome.UNKNOWN)
     unknown_rate = (unknown_count / len(episodes)) if episodes else 0.0
+    jobs = store.list_jobs(limit=None)
+    pending_jobs = sum(1 for job in jobs if job.status in {JobStatus.PENDING, JobStatus.RUNNING})
+    failed_jobs = sum(1 for job in jobs if job.status is JobStatus.FAILED)
+    governance = evaluate_governance(store)
+    debug_log_path = (
+        (cfg.project_root / ".claude" / "mm.debug.log")
+        if cfg.project_root is not None
+        else (cfg.db_path.parent / "mm.debug.log")
+    )
+    debug_log_present = debug_log_path.exists()
+    retrieval_telemetry = _read_retrieval_telemetry(debug_log_path)
 
     # Top and struggling skills
     top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][
@@ -493,6 +603,16 @@ def stats(
                 "pending_review": len(pending_review),
                 "stale": len(stale),
                 "unknown_rate": unknown_rate,
+                "pending_jobs": pending_jobs,
+                "failed_jobs": failed_jobs,
+                "debug_log_present": debug_log_present,
+                "retrieval_samples": (retrieval_telemetry or {}).get("samples", 0),
+                "avg_retrieve_ms": (retrieval_telemetry or {}).get("avg_retrieve_ms", 0.0),
+            },
+            "governance": {
+                "demote": governance.demote_skill_ids,
+                "refine": governance.refine_skill_ids,
+                "review": governance.review_skill_ids,
             },
             "top_skills": [_skill_to_dict(s) for s in top_skills],
             "struggling_skills": [_skill_to_dict(s) for s in struggling],
@@ -591,6 +711,27 @@ def stats(
             f"  ({unknown_count}/{len(episodes)} episodes)"
         )
         attention_items += 1
+    if pending_jobs:
+        console.print(
+            f"  [yellow]pending jobs[/yellow]   {pending_jobs} job(s) awaiting completion"
+        )
+        attention_items += 1
+    if failed_jobs:
+        console.print(
+            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry"
+            "  (`mm jobs retry-failed`)"
+        )
+        attention_items += 1
+    if governance.demote_skill_ids:
+        console.print(
+            f"  [red]eval demote[/red]    {len(governance.demote_skill_ids)} skill(s) show poor health"
+        )
+        attention_items += 1
+    if governance.review_skill_ids:
+        console.print(
+            f"  [yellow]eval review[/yellow]   {len(governance.review_skill_ids)} skill(s) need review"
+        )
+        attention_items += 1
     if attention_items == 0:
         console.print("  [green]No issues detected.[/green]")
 
@@ -634,6 +775,83 @@ def stats(
 
 
 @app.command()
+def doctor(
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Inspect runtime health for database, jobs, and debug logging."""
+    cfg = _load_config()
+    db_exists = cfg.db_path.exists()
+    paused = (cfg.db_path.parent / "mm.paused").exists()
+    debug_log_path = (
+        (cfg.project_root / ".claude" / "mm.debug.log")
+        if cfg.project_root is not None
+        else (cfg.db_path.parent / "mm.debug.log")
+    )
+    debug_log_exists = debug_log_path.exists()
+
+    jobs: list[BackgroundJob] = []
+    if db_exists:
+        store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+        jobs = store.list_jobs(limit=None)
+
+    counts = {status.value: 0 for status in JobStatus}
+    for job in jobs:
+        counts[job.status.value] += 1
+
+    last_debug_event = _read_last_debug_event(debug_log_path)
+    retrieval_telemetry = _read_retrieval_telemetry(debug_log_path)
+    recent_retrieval_decisions = _read_recent_retrieval_decisions(debug_log_path)
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "database": str(cfg.db_path),
+                    "db_exists": db_exists,
+                    "paused": paused,
+                    "debug_enabled": cfg.debug_enabled,
+                    "debug_log_path": str(debug_log_path),
+                    "debug_log_exists": debug_log_exists,
+                    "job_counts": counts,
+                    "last_debug_event": last_debug_event,
+                    "retrieval_telemetry": retrieval_telemetry,
+                    "recent_retrieval_decisions": recent_retrieval_decisions,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    status_line = "[yellow]paused[/yellow]" if paused else "[green]active[/green]"
+    console.print(Panel(f"[bold]database[/bold]  {cfg.db_path}\n[bold]status[/bold]    {status_line}", title="doctor"))
+    console.print(f"[bold]db exists[/bold]       {'yes' if db_exists else 'no'}")
+    console.print(f"[bold]debug enabled[/bold]  {'yes' if cfg.debug_enabled else 'no'}")
+    console.print(f"[bold]debug log[/bold]      {debug_log_path} ({'present' if debug_log_exists else 'missing'})")
+    console.print(
+        f"[bold]jobs[/bold]           pending={counts['pending']} running={counts['running']} "
+        f"failed={counts['failed']} succeeded={counts['succeeded']}"
+    )
+    if last_debug_event:
+        console.print(
+            f"[bold]last event[/bold]     {last_debug_event.get('component', '?')}::"
+            f"{last_debug_event.get('event', '?')}"
+        )
+    if retrieval_telemetry:
+        console.print(
+            f"[bold]retrieval[/bold]      samples={retrieval_telemetry['samples']} "
+            f"avg_retrieve_ms={retrieval_telemetry['avg_retrieve_ms']} "
+            f"avg_total_ms={retrieval_telemetry['avg_total_ms']}"
+        )
+    if recent_retrieval_decisions:
+        latest = recent_retrieval_decisions[0]
+        console.print(
+            f"[bold]latest decision[/bold] {latest['event']} — {latest['why']}"
+        )
+    if not db_exists:
+        console.print("[dim]Database missing. Run [bold]mm init[/bold] first.[/dim]")
+
+
+@app.command()
 def refine(
     skill_id: str | None = typer.Argument(
         None, help="Skill id or prefix to refine. Omit with --auto to sweep."
@@ -653,6 +871,7 @@ def refine(
     rollback: bool = typer.Option(
         False, "--rollback", help="Restore the previous skill text (undoes one refinement)."
     ),
+    job_id: str | None = typer.Option(None, "--job-id", hidden=True),
 ) -> None:
     """Non-parametric PPO refinement of one or all skills.
 
@@ -679,6 +898,11 @@ def refine(
 
     cfg = _load_config()
     store = _open_store(cfg)
+    if job_id:
+        try:
+            store.update_job_status(job_id, status=JobStatus.RUNNING)
+        except KeyError:
+            pass
 
     if rollback:
         if not skill_id:
@@ -709,6 +933,8 @@ def refine(
                 targets.append(s)
         if not targets:
             console.print("[green]No skills meet auto-refine criteria.[/green]")
+            if job_id:
+                store.update_job_status(job_id, status=JobStatus.SUCCEEDED)
             return
         console.print(
             f"Sweeping [bold]{len(targets)}[/bold] skill(s) matching "
@@ -751,6 +977,8 @@ def refine(
         f"Rejected: [yellow]{rejected}[/yellow]"
         + ("   [dim](dry-run — no changes written)[/dim]" if dry_run else "")
     )
+    if job_id:
+        store.update_job_status(job_id, status=JobStatus.SUCCEEDED)
 
 
 def _print_refinement_result(result: Any, *, dry_run: bool) -> None:
@@ -872,6 +1100,46 @@ def prune(
     console.print(f"[green]Pruned {len(report.removed)} skills.[/green] {report.kept} remain.")
 
 
+@maint_app.command("govern")
+def govern(
+    apply: bool = typer.Option(False, "--apply", help="Apply governance actions."),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Recommend or apply eval-driven governance actions."""
+    from muscle_memory.eval.evaluator import evaluate_governance
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    report = evaluate_governance(store)
+    payload = {
+        "demote": report.demote_skill_ids,
+        "refine": report.refine_skill_ids,
+        "review": report.review_skill_ids,
+    }
+
+    if apply:
+        for skill_id in report.demote_skill_ids:
+            skill = store.get_skill(skill_id)
+            if skill is None:
+                continue
+            skill.maturity = Maturity.CANDIDATE
+            store.update_skill(skill)
+
+    if as_json:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    console.print(
+        Panel.fit(
+            f"demote: {len(report.demote_skill_ids)}\n"
+            f"refine: {len(report.refine_skill_ids)}\n"
+            f"review: {len(report.review_skill_ids)}\n"
+            + ("\n[green]Applied demotions.[/green]" if apply else "\n[dim]Dry run only.[/dim]"),
+            title="governance",
+        )
+    )
+
+
 @share_app.command("export")
 @app.command(hidden=True)
 def export(
@@ -975,7 +1243,10 @@ def bootstrap(
 
 
 @app.command("extract-episode", hidden=True)
-def extract_episode_cmd(episode_id: str) -> None:
+def extract_episode_cmd(
+    episode_id: str,
+    job_id: str | None = typer.Option(None, "--job-id", hidden=True),
+) -> None:
     """Extract skills from a single episode (used by the async pipeline)."""
     from muscle_memory.dedup import add_skill_with_dedup
     from muscle_memory.embeddings import make_embedder
@@ -984,29 +1255,45 @@ def extract_episode_cmd(episode_id: str) -> None:
 
     cfg = _load_config()
     store = _open_store(cfg)
+    if job_id:
+        try:
+            store.update_job_status(job_id, status=JobStatus.RUNNING)
+        except KeyError:
+            pass
 
-    episode = store.get_episode(episode_id)
-    if episode is None:
-        console.print(f"[red]Episode {episode_id} not found[/red]")
-        raise typer.Exit(1)
+    try:
+        episode = store.get_episode(episode_id)
+        if episode is None:
+            console.print(f"[red]Episode {episode_id} not found[/red]")
+            raise typer.Exit(1)
 
-    llm = make_llm(cfg)
-    embedder = make_embedder(cfg)
-    ex = Extractor(llm, cfg)
-    skills = ex.extract(episode)
+        llm = make_llm(cfg)
+        embedder = make_embedder(cfg)
+        ex = Extractor(llm, cfg)
+        skills = ex.extract(episode)
 
-    added = 0
-    deduped = 0
-    for skill in skills:
-        was_added, _existing = add_skill_with_dedup(store, embedder, skill)
-        if was_added:
-            added += 1
-        else:
-            deduped += 1
-    console.print(
-        f"[green]Extracted {added} new skills from episode {episode_id}"
-        f"[/green] ([dim]{deduped} deduped[/dim])"
-    )
+        added = 0
+        deduped = 0
+        for skill in skills:
+            was_added, _existing = add_skill_with_dedup(store, embedder, skill)
+            if was_added:
+                added += 1
+            else:
+                deduped += 1
+        console.print(
+            f"[green]Extracted {added} new skills from episode {episode_id}"
+            f"[/green] ([dim]{deduped} deduped[/dim])"
+        )
+        if job_id:
+            store.update_job_status(job_id, status=JobStatus.SUCCEEDED)
+    except typer.Exit as exc:
+        if job_id:
+            store.update_job_status(job_id, status=JobStatus.FAILED, error=f"exit {exc.exit_code}")
+        raise
+    except Exception as exc:
+        if job_id:
+            store.update_job_status(job_id, status=JobStatus.FAILED, error=str(exc))
+        raise
 
 
 @maint_app.command("dedup")
@@ -1230,6 +1517,160 @@ def _resolve_skill(store: Store, id_or_prefix: str) -> Skill:
     return matches[0]
 
 
+def _resolve_job(store: Store, id_or_prefix: str) -> BackgroundJob:
+    job = store.get_job(id_or_prefix)
+    if job is not None:
+        return job
+    matches = [j for j in store.list_jobs(limit=None) if j.id.startswith(id_or_prefix)]
+    if not matches:
+        console.print(f"[red]No job matching {id_or_prefix!r}[/red]")
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        console.print(f"[red]Ambiguous: {len(matches)} jobs start with {id_or_prefix!r}[/red]")
+        raise typer.Exit(1)
+    return matches[0]
+
+
+def _candidate_review_metadata(skill: Skill) -> dict[str, Any]:
+    evidence = len(dict.fromkeys(skill.source_episode_ids))
+    auto_ready = evidence >= 2 and skill.successes >= 2 and skill.score >= 0.6
+    if auto_ready:
+        reason = "ready to promote"
+    elif evidence < 2:
+        reason = "needs more evidence"
+    elif skill.successes < 2:
+        reason = "needs more successful runs"
+    elif skill.score < 0.6:
+        reason = "performance below live threshold"
+    else:
+        reason = "awaiting review"
+    return {
+        "source_evidence": evidence,
+        "auto_promote_ready": auto_ready,
+        "review_reason": reason,
+    }
+
+
+def _read_last_debug_event(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def _read_retrieval_telemetry(path: Path) -> dict[str, float | int] | None:
+    if not path.exists():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+
+    samples = 0
+    total_retrieve = 0.0
+    total_embed = 0.0
+    total_search = 0.0
+    total_rerank = 0.0
+    total_total = 0.0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        if data.get("component") != "user_prompt":
+            continue
+        if data.get("event") not in {"hits_returned", "no_hits"}:
+            continue
+        retrieve_ms = data.get("retrieve_ms")
+        if retrieve_ms is None:
+            continue
+        samples += 1
+        total_retrieve += float(retrieve_ms)
+        total_embed += float(data.get("embed_ms") or 0.0)
+        total_search += float(data.get("search_ms") or 0.0)
+        total_rerank += float(data.get("rerank_ms") or 0.0)
+        total_total += float(data.get("total_ms") or 0.0)
+
+    if samples == 0:
+        return None
+    return {
+        "samples": samples,
+        "avg_retrieve_ms": round(total_retrieve / samples, 3),
+        "avg_embed_ms": round(total_embed / samples, 3),
+        "avg_search_ms": round(total_search / samples, 3),
+        "avg_rerank_ms": round(total_rerank / samples, 3),
+        "avg_total_ms": round(total_total / samples, 3),
+    }
+
+
+def _read_recent_retrieval_decisions(path: Path, *, limit: int = 5) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+
+    decisions: list[dict[str, Any]] = []
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict) or data.get("component") != "user_prompt":
+            continue
+        event = str(data.get("event") or "")
+        if event not in {"hits_returned", "no_hits", "shell_escape_skip", "no_db", "paused"}:
+            continue
+        why = "retrieved matching trusted skills"
+        if event == "no_hits":
+            if data.get("lexical_prefilter_skipped"):
+                why = "no lexical overlap with trusted skills"
+            else:
+                why = "no trusted skills passed retrieval filters"
+        elif event == "shell_escape_skip":
+            why = "prompt looked like a direct shell/slash command"
+        elif event == "no_db":
+            why = "database not initialized"
+        elif event == "paused":
+            why = "muscle-memory is paused"
+        decisions.append(
+            {
+                "timestamp": data.get("timestamp"),
+                "session_id": data.get("session_id"),
+                "event": event,
+                "prompt_excerpt": data.get("prompt_excerpt"),
+                "why": why,
+                "hit_count": data.get("hit_count", 0),
+            }
+        )
+        if len(decisions) >= limit:
+            break
+    return decisions
+
+
 def _skill_to_dict(s: Skill) -> dict[str, Any]:
     return {
         "id": s.id,
@@ -1247,6 +1688,19 @@ def _skill_to_dict(s: Skill) -> dict[str, Any]:
         "source_episode_ids": s.source_episode_ids,
         "created_at": s.created_at.isoformat(),
         "last_used_at": s.last_used_at.isoformat() if s.last_used_at else None,
+    }
+
+
+def _job_to_dict(job: BackgroundJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "kind": job.kind.value,
+        "status": job.status.value,
+        "payload": job.payload,
+        "attempts": job.attempts,
+        "error": job.error,
+        "created_at": job.created_at.isoformat(),
+        "updated_at": job.updated_at.isoformat(),
     }
 
 

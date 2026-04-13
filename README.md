@@ -69,6 +69,8 @@ mm bootstrap --days 30
 mm list
 mm show <skill-id>
 mm stats
+mm doctor
+mm jobs list
 
 # review quarantined candidates before they become retrievable
 mm review list
@@ -84,6 +86,7 @@ mm refine <id> --rollback  # undo the most recent refinement
 mm maint dedup             # collapse near-duplicate skills
 mm maint rescore           # re-run the outcome heuristic on stored episodes
 mm maint prune             # delete demonstrably bad skills
+mm maint govern            # eval-driven demotion / review recommendations
 ```
 
 ## Try The Demo
@@ -146,8 +149,7 @@ Newly extracted skills do not go straight into live retrieval.
 - `live`: trusted enough to retrieve automatically
 - `proven`: repeatedly successful and strongly trusted
 
-Candidates can be promoted automatically when the same procedure is learned from
-multiple distinct successful episodes, or manually via `mm review approve`.
+Candidates are promoted conservatively: they need repeated evidence from distinct successful source episodes before auto-promotion, or manual approval via `mm review approve`. Trust can also move in the other direction now — weak `live`/`proven` skills can be flagged for review or demotion by the eval-governance pass.
 
 ## Skill anatomy
 

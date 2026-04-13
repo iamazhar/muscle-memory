@@ -112,9 +112,9 @@ This is tested in `test_edge_cases.py::TestHookResilience` with 9+
 garbage-input cases (empty, binary, null, wrong-shape JSON, missing
 fields, nonexistent transcript paths). Every one returns 0 cleanly.
 
-If you're debugging why a skill isn't firing and suspect a silent
-hook crash, temporarily set `MM_DEBUG=1` (not implemented yet — file
-a feature request if you need it).
+For debugging, set `MM_DEBUG=1`. Hooks then append structured JSONL events to
+`.claude/mm.debug.log` for retrieval decisions, transcript/episode handling,
+background job spawn attempts, and timing telemetry.
 
 ## Parallel behavioral testing
 
