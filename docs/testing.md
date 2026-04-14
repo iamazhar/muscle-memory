@@ -14,6 +14,21 @@
 Total: **99 passing tests** run by `pytest` in under a second. Behavioral
 tests are skipped by default because they spawn real Claude Code sessions.
 
+## Claude Code-first v1
+
+The v1 release story is Claude Code-first. The fast suites protect the core
+engine, but the behavioral suite is the release proof for the supported
+surface.
+
+If a Claude Code session needs recovery, use the operator commands we rely on
+in the rest of the repo:
+
+- `mm maint pause`
+- `mm maint resume`
+- `mm doctor`
+- `mm review list`
+- `mm jobs retry-failed`
+
 ## Running tests
 
 ```bash

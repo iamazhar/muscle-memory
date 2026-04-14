@@ -9,7 +9,7 @@
 </p>
 
 
-`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. Claude Code is one supported runtime adapter, but the memory engine can also run in a generic harness mode with explicit `mm retrieve` and offline transcript ingest.
+`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. For v1, the release story is Claude Code-first: Claude Code is the supported runtime adapter we prove in CI and release docs first, while the memory engine can also run in a generic harness mode with explicit `mm retrieve` and offline transcript ingest.
 
 Inspired by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869), but purpose-built for coding agents.
 
@@ -91,6 +91,8 @@ mm refine --auto           # sweep all skills meeting auto-refine criteria
 mm refine <id> --rollback  # undo the most recent refinement
 
 # maintenance
+mm maint pause         # pause hooks while you investigate a bad state
+mm maint resume        # resume hooks after recovery
 mm maint dedup             # collapse near-duplicate skills
 mm maint rescore           # re-run the outcome heuristic on stored episodes
 mm maint prune             # delete demonstrably bad skills

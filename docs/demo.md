@@ -5,6 +5,10 @@
 The goal is simple: give engineers a realistic surface where the product can be
 dogfooded immediately.
 
+For the v1 release story, this demo is still part of the Claude Code-first
+surface we support and verify. When a dogfood session drifts, `mm doctor` is the
+first place to look, followed by the usual recovery commands.
+
 ## Why it exists
 
 - new users can see the product on something concrete instead of a synthetic transcript

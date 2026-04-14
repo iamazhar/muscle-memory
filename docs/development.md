@@ -24,6 +24,12 @@ uv tool install --from . muscle-memory
 mm --version
 ```
 
+For the Claude Code-first v1 release path, the supported surface is the
+Claude Code harness plus the behavioral release proof. If a session gets into a
+bad state, the same recovery commands used in production docs apply here:
+`mm maint pause`, `mm maint resume`, `mm doctor`, `mm review list`, and
+`mm jobs retry-failed`.
+
 To verify release artifacts exactly the way CI does, run the release preflight:
 
 ```bash

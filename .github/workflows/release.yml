@@ -82,6 +82,24 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Verify release checklist inputs
+        run: |
+          test -f docs/release.md
+          uv run python scripts/release_preflight.py "${{ inputs.version }}"
+
+      - name: Run release benchmark gate
+        run: uv run mm eval run --json > benchmark-run.json
+
+      - name: Assert benchmark thresholds
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("benchmark-run.json").read_text(encoding="utf-8"))
+          assert data["thresholds_passed"] is True, data["failed_thresholds"]
+          PY
+
       - name: Run test suite
         run: uv run pytest tests/ --ignore=tests/test_behavioral.py -q
 
