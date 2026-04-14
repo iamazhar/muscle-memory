@@ -35,3 +35,5 @@ def test_readme_calls_out_claude_code_first_release_story() -> None:
     assert "Claude Code-first" in text
     assert "mm doctor" in text
     assert "mm maint pause" in text
+    assert "mm review list" in text
+    assert "mm jobs retry-failed" in text

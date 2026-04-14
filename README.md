@@ -93,6 +93,9 @@ mm refine <id> --rollback  # undo the most recent refinement
 # maintenance
 mm maint pause         # pause hooks while you investigate a bad state
 mm maint resume        # resume hooks after recovery
+mm doctor              # inspect runtime health, retrieval decisions, and jobs
+mm review list         # inspect quarantined candidates before promoting them
+mm jobs retry-failed   # retry failed background extraction/refinement work
 mm maint dedup             # collapse near-duplicate skills
 mm maint rescore           # re-run the outcome heuristic on stored episodes
 mm maint prune             # delete demonstrably bad skills

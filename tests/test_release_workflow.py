@@ -50,6 +50,15 @@ def test_release_workflow_mentions_release_checklist_and_gate() -> None:
     assert "docs/release.md" in text
     assert "release checklist" in text.lower()
     assert "mm eval run --json" in text
+    assert "tests/test_behavioral.py" in text
+    assert 'CLAUDE_TESTS: "1"' in text
+
+
+def test_release_workflow_supports_rerun_when_tag_already_exists_on_same_commit() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'git rev-list -n 1 "refs/tags/v${VERSION}"' in text
+    assert "reusing it for rerun" in text
 
 
 def test_release_checklist_doc_exists_and_lists_gate_steps() -> None:
@@ -68,3 +77,13 @@ def test_testing_and_demo_docs_note_supported_surface_and_recovery() -> None:
     assert "recovery" in testing_text.lower()
     assert "Claude Code-first" in demo_text
     assert "mm doctor" in demo_text
+    assert "mm review list" in demo_text
+    assert "mm jobs retry-failed" in demo_text
+
+
+def test_development_docs_distinguish_preflight_from_full_ci_path() -> None:
+    text = DEVELOPMENT_DOC.read_text(encoding="utf-8")
+
+    assert "first release gate" in text.lower()
+    assert "full CI-equivalent package path" in text
+    assert "docs/release.md" in text

@@ -30,7 +30,7 @@ bad state, the same recovery commands used in production docs apply here:
 `mm maint pause`, `mm maint resume`, `mm doctor`, `mm review list`, and
 `mm jobs retry-failed`.
 
-To verify release artifacts exactly the way CI does, run the release preflight:
+To verify the first release gate locally, run the release preflight:
 
 ```bash
 uv run python scripts/release_preflight.py $(uv run python - <<'PY'
@@ -43,7 +43,11 @@ PY
 )
 ```
 
-If you want the lower-level steps individually:
+For the full CI-equivalent package path, also run the benchmark gate, build,
+distribution checks, checksum generation, and smoke tests. The complete ordered
+release sequence lives in [docs/release.md](release.md).
+
+If you want the lower-level package checks individually:
 
 ```bash
 uv build

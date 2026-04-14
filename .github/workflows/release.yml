@@ -75,8 +75,12 @@ jobs:
           PY
 
           if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists."
-            exit 1
+            TAG_SHA="$(git rev-list -n 1 "refs/tags/v${VERSION}")"
+            HEAD_SHA="$(git rev-parse HEAD)"
+            if [ "${TAG_SHA}" != "${HEAD_SHA}" ]; then
+              echo "Tag v${VERSION} already exists on ${TAG_SHA}, not ${HEAD_SHA}."
+              exit 1
+            fi
           fi
 
       - name: Install dependencies
@@ -103,6 +107,11 @@ jobs:
       - name: Run test suite
         run: uv run pytest tests/ --ignore=tests/test_behavioral.py -q
 
+      - name: Run Claude Code behavioral proof
+        env:
+          CLAUDE_TESTS: "1"
+        run: uv run pytest tests/test_behavioral.py -q
+
       - name: Build package
         run: uv build
 
@@ -126,15 +135,6 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: uv run python scripts/release_notes.py "${VERSION}" > release-notes.md
 
-      - name: Create and push tag
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${VERSION}" -m "v${VERSION}"
-          git push origin "v${VERSION}"
-
       - name: Publish to PyPI
         if: ${{ inputs.publish_to_pypi }}
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -143,6 +143,19 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: uv run python scripts/generate_release_checksums.py "${VERSION}"
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists; reusing it for rerun."
+          else
+            git tag -a "v${VERSION}" -m "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
