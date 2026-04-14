@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
@@ -10,6 +12,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+import muscle_memory.cli as cli
 from muscle_memory.cli import app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
@@ -54,6 +57,28 @@ def _make_trajectory(commands: list[tuple[str, str | None]]) -> Trajectory:
             tc.result = result
         calls.append(tc)
     return Trajectory(tool_calls=calls)
+
+
+def test_cli_current_worktree_state_ignores_benchmark_run_json(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="?? benchmark-run.json\n M src/muscle_memory/cli.py\n",
+            stderr="",
+        ),
+    )
+
+    clean, state = cli._current_worktree_state(tmp_path)
+
+    expected_status = " M src/muscle_memory/cli.py\n"
+    assert clean is False
+    assert state == hashlib.sha256(expected_status.encode("utf-8")).hexdigest()
 
 
 # ── Relevance tests ────────────────────────────────────────────────

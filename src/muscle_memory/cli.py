@@ -101,7 +101,14 @@ def _current_worktree_state(repo_root: Path | None) -> tuple[bool | None, str | 
         )
     except (OSError, subprocess.CalledProcessError):
         return None, None
-    status = result.stdout
+    status_lines = [
+        line
+        for line in result.stdout.splitlines()
+        if line[3:] != "benchmark-run.json"
+    ]
+    status = "\n".join(status_lines)
+    if status_lines:
+        status += "\n"
     return status == "", hashlib.sha256(status.encode("utf-8")).hexdigest()
 
 

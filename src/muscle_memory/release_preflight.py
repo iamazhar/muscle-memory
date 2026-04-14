@@ -64,7 +64,14 @@ def _current_worktree_state(repo_root: Path) -> tuple[bool | None, str | None]:
         )
     except (OSError, subprocess.CalledProcessError):
         return None, None
-    status = result.stdout
+    status_lines = [
+        line
+        for line in result.stdout.splitlines()
+        if line[3:] != "benchmark-run.json"
+    ]
+    status = "\n".join(status_lines)
+    if status_lines:
+        status += "\n"
     return status == "", hashlib.sha256(status.encode("utf-8")).hexdigest()
 
 
@@ -175,6 +182,13 @@ def _benchmark_artifact_matches_repo(
     return repo_head == current_repo_head and source_tree_sha256 == current_source_tree_sha256
 
 
+def _benchmark_artifact_has_repo_provenance(data: dict[str, object]) -> bool:
+    return isinstance(data.get("repo_head"), str) and isinstance(
+        data.get("source_tree_sha256"),
+        str,
+    )
+
+
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     cfg = _project_release_config(repo_root)
     default_benchmark_path = cfg.db_path.parent / "benchmark.json"
@@ -203,6 +217,15 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
                 f"benchmark artifact {benchmark_path} does not match the current source state"
             )
         return asdict(summarize_benchmark_artifact(benchmark_path))
+
+    if _benchmark_artifact_has_repo_provenance(raw_benchmark) and not _benchmark_artifact_matches_repo(
+        raw_benchmark,
+        repo_root,
+        benchmark_path,
+    ):
+        raise ValueError(
+            f"benchmark artifact {benchmark_path} does not match the current source state"
+        )
 
     store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
     return asdict(run_benchmark(store, benchmark_path, embedder=make_embedder(cfg)))
