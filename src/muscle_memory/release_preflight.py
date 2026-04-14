@@ -15,6 +15,7 @@ from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.eval.benchmark import run_benchmark
+from muscle_memory.models import Scope
 from muscle_memory.release_artifacts import (
     discover_release_artifacts,
     verify_release_artifacts,
@@ -33,12 +34,51 @@ def validate_release_benchmark(path: Path) -> None:
     _validate_release_benchmark_data(json.loads(path.read_text(encoding="utf-8")))
 
 
+def _current_repo_head(repo_root: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _benchmark_run_matches_repo(data: dict[str, object], repo_root: Path) -> bool:
+    repo_head = data.get("repo_head")
+    repo_path = data.get("repo_root")
+    if not isinstance(repo_head, str) or not isinstance(repo_path, str):
+        return False
+
+    current_head = _current_repo_head(repo_root)
+    if current_head is None:
+        return False
+
+    return Path(repo_path).expanduser().resolve() == repo_root.resolve() and repo_head == current_head
+
+
+def _project_release_config(repo_root: Path) -> Config:
+    cfg = Config.load(
+        start_dir=repo_root,
+        db_path=repo_root / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+    )
+    cfg.project_root = repo_root
+    return cfg
+
+
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
-        return json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        data = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        if _benchmark_run_matches_repo(data, repo_root):
+            return data
 
-    cfg = Config.load(start_dir=repo_root)
+    cfg = _project_release_config(repo_root)
     benchmark_path = cfg.db_path.parent / "benchmark.json"
     if not benchmark_path.exists():
         raise ValueError(

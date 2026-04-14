@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 from pathlib import Path
 
@@ -9,10 +10,12 @@ import pytest
 
 from muscle_memory.config import Config
 from muscle_memory.db import Store
+from muscle_memory.eval.benchmark import BenchmarkRunResult
 from muscle_memory.eval.benchmark import build_benchmark
 from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
 from muscle_memory.release_preflight import (
     distribution_paths,
+    load_release_benchmark,
     run_release_preflight,
     validate_release_benchmark,
     validate_release_metadata,
@@ -46,9 +49,14 @@ def _write_repo_fixture(tmp_path: Path, *, version: str = "0.8.0", changelog_ver
     )
 
 
-def _write_successful_benchmark_run(path: Path) -> None:
+def _write_successful_benchmark_run(path: Path, *, repo_root: Path | None = None, repo_head: str | None = None) -> None:
+    data = {"thresholds_passed": True, "failed_thresholds": []}
+    if repo_root is not None:
+        data["repo_root"] = str(repo_root)
+    if repo_head is not None:
+        data["repo_head"] = repo_head
     path.write_text(
-        json.dumps({"thresholds_passed": True, "failed_thresholds": []}) + "\n",
+        json.dumps(data) + "\n",
         encoding="utf-8",
     )
 
@@ -101,8 +109,13 @@ def test_validate_release_benchmark_rejects_failed_thresholds(tmp_path: Path) ->
 
 def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monkeypatch) -> None:
     _write_repo_fixture(tmp_path)
-    _write_successful_benchmark_run(tmp_path / "benchmark-run.json")
+    _write_successful_benchmark_run(
+        tmp_path / "benchmark-run.json",
+        repo_root=tmp_path,
+        repo_head="abc123",
+    )
 
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
     monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
     monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
     monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
@@ -156,3 +169,73 @@ def test_run_release_preflight_falls_back_to_recomputing_benchmark(
     monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
 
     run_release_preflight("0.8.0", tmp_path)
+
+
+def test_load_release_benchmark_ignores_stale_repo_benchmark_run(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    _write_successful_benchmark_run(tmp_path / "benchmark-run.json")
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+
+    expected = BenchmarkRunResult(
+        total=1,
+        avg_relevance=0.2,
+        avg_adherence=0.2,
+        false_positive_rate=1.0,
+        execution_success_rate=0.0,
+        promotion_precision=0.0,
+        thresholds_passed=False,
+        failed_thresholds=["avg_relevance"],
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
+    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
+    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected)
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data == asdict(expected)
+
+
+def test_load_release_benchmark_recompute_ignores_mm_db_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+
+    external_db = tmp_path / "external.db"
+    monkeypatch.setenv("MM_DB_PATH", str(external_db))
+    monkeypatch.setenv("MM_SCOPE", "global")
+
+    captured: dict[str, object] = {}
+    expected = BenchmarkRunResult(
+        total=1,
+        avg_relevance=0.9,
+        avg_adherence=0.9,
+        false_positive_rate=0.0,
+        execution_success_rate=1.0,
+        promotion_precision=1.0,
+        thresholds_passed=True,
+        failed_thresholds=[],
+    )
+
+    class _FakeStore:
+        def __init__(self, db_path: Path, *, embedding_dims: int) -> None:
+            captured["db_path"] = db_path
+            captured["embedding_dims"] = embedding_dims
+
+    monkeypatch.setattr("muscle_memory.release_preflight.Store", _FakeStore)
+    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
+    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected)
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data == asdict(expected)
+    assert captured["db_path"] == tmp_path / ".claude" / "mm.db"
