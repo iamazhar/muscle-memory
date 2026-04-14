@@ -491,10 +491,13 @@ def test_eval_run_json_reports_payload_and_exit_code(
     expected_exit_code: int,
     failed_thresholds: list[str],
 ) -> None:
+    db_path = tmp_path / ".claude" / "mm.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("db\n", encoding="utf-8")
     benchmark_path = tmp_path / "benchmark.json"
     benchmark_path.write_text("{}\n", encoding="utf-8")
     config = Config(
-        db_path=tmp_path / ".claude" / "mm.db",
+        db_path=db_path,
         scope=Scope.PROJECT,
         project_root=tmp_path,
         embedding_dims=4,
@@ -524,7 +527,10 @@ def test_eval_run_json_reports_payload_and_exit_code(
         patch("muscle_memory.cli._open_store", return_value=fake_store),
         patch("muscle_memory.cli._current_repo_head", return_value="abc123"),
         patch("muscle_memory.cli._current_worktree_state", return_value=(True, "clean-state")),
-        patch("muscle_memory.cli._file_sha256", return_value="bench-sha"),
+        patch(
+            "muscle_memory.cli._file_sha256",
+            side_effect=lambda path: "db-sha" if path == db_path else "bench-sha",
+        ),
         patch("muscle_memory.cli.make_embedder", side_effect=_fake_make_embedder),
         patch("muscle_memory.eval.benchmark.run_benchmark", return_value=benchmark_result) as mock_run,
     ):
@@ -549,6 +555,8 @@ def test_eval_run_json_reports_payload_and_exit_code(
         "degraded": [],
         "benchmark_path": str(benchmark_path.resolve()),
         "benchmark_sha256": "bench-sha",
+        "db_path": str(db_path.resolve()),
+        "db_sha256": "db-sha",
         "repo_root": str(tmp_path.resolve()),
         "repo_head": "abc123",
         "worktree_clean": True,

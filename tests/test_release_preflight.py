@@ -117,6 +117,8 @@ def test_validate_release_benchmark_rejects_failed_thresholds(tmp_path: Path) ->
 def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monkeypatch) -> None:
     _write_repo_fixture(tmp_path)
     (tmp_path / ".claude").mkdir()
+    db_path = tmp_path / ".claude" / "mm.db"
+    db_path.write_text("db\n", encoding="utf-8")
     benchmark_path = tmp_path / ".claude" / "benchmark.json"
     benchmark_path.write_text("artifact\n", encoding="utf-8")
     _write_successful_benchmark_run(
@@ -127,6 +129,8 @@ def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monk
     data = json.loads((tmp_path / "benchmark-run.json").read_text(encoding="utf-8"))
     data["benchmark_path"] = str(benchmark_path.resolve())
     data["benchmark_sha256"] = hashlib.sha256(b"artifact\n").hexdigest()
+    data["db_path"] = str(db_path.resolve())
+    data["db_sha256"] = hashlib.sha256(b"db\n").hexdigest()
     (tmp_path / "benchmark-run.json").write_text(json.dumps(data) + "\n", encoding="utf-8")
 
     monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
@@ -415,10 +419,12 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
 ) -> None:
     _write_repo_fixture(tmp_path)
     (tmp_path / ".claude").mkdir()
+    db_path = tmp_path / ".claude" / "mm.db"
+    db_path.write_text("db\n", encoding="utf-8")
     benchmark_path = tmp_path / ".claude" / "benchmark.json"
     benchmark_path.write_text("{}\n", encoding="utf-8")
     config = Config(
-        db_path=tmp_path / ".claude" / "mm.db",
+        db_path=db_path,
         scope=Scope.PROJECT,
         project_root=tmp_path,
         embedding_dims=4,
@@ -444,7 +450,10 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
         cli_patch.setattr("muscle_memory.cli._open_store", lambda cfg: object())
         cli_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
         cli_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
-        cli_patch.setattr("muscle_memory.cli._file_sha256", lambda path: "bench-sha")
+        cli_patch.setattr(
+            "muscle_memory.cli._file_sha256",
+            lambda path: "db-sha" if path == db_path else "bench-sha",
+        )
         cli_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: object())
         cli_patch.setattr("muscle_memory.eval.benchmark.run_benchmark", lambda store, path, embedder=None: benchmark_result)
         result = runner.invoke(app, ["eval", "run", "--benchmark", str(benchmark_path), "--json"])
@@ -454,7 +463,10 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
 
         preflight_patch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
         preflight_patch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
-        preflight_patch.setattr("muscle_memory.release_preflight._file_sha256", lambda path: "bench-sha")
+        preflight_patch.setattr(
+            "muscle_memory.release_preflight._file_sha256",
+            lambda path: "db-sha" if path == db_path else "bench-sha",
+        )
         data = load_release_benchmark(tmp_path)
 
     assert data["repo_root"] == str(tmp_path.resolve())
@@ -462,6 +474,73 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
     assert data["thresholds_passed"] is True
     assert data["benchmark_path"] == str(benchmark_path.resolve())
     assert data["benchmark_sha256"] == "bench-sha"
+    assert data["db_path"] == str(db_path.resolve())
+    assert data["db_sha256"] == "db-sha"
+
+
+def test_load_release_benchmark_ignores_stale_db_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    db_path = tmp_path / ".claude" / "mm.db"
+    db_path.write_text("current-db\n", encoding="utf-8")
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+    (tmp_path / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "thresholds_passed": True,
+                "failed_thresholds": [],
+                "repo_root": str(tmp_path.resolve()),
+                "repo_head": "abc123",
+                "worktree_clean": True,
+                "worktree_state": "clean-state",
+                "benchmark_path": str(benchmark_path.resolve()),
+                "benchmark_sha256": "bench-sha",
+                "db_path": str(db_path.resolve()),
+                "db_sha256": "stale-db-sha",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    expected = BenchmarkRunResult(
+        total=1,
+        avg_relevance=0.9,
+        avg_adherence=0.9,
+        false_positive_rate=0.0,
+        execution_success_rate=1.0,
+        promotion_precision=1.0,
+        thresholds_passed=True,
+        failed_thresholds=[],
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeStore:
+        def __init__(self, db_path: Path, *, embedding_dims: int) -> None:
+            captured["db_path"] = db_path
+            captured["embedding_dims"] = embedding_dims
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._file_sha256",
+        lambda path: "current-db-sha" if path == db_path else "bench-sha",
+    )
+    monkeypatch.setattr("muscle_memory.release_preflight.Store", _FakeStore)
+    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.run_benchmark",
+        lambda store, path, embedder=None: expected,
+    )
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data == asdict(expected)
+    assert captured["db_path"] == db_path
 
 
 def test_load_release_benchmark_ignores_dirty_worktree_cache(

@@ -1591,6 +1591,8 @@ def eval_run(
         payload = asdict(result)
         payload["benchmark_path"] = str(path.resolve())
         payload["benchmark_sha256"] = _file_sha256(path)
+        payload["db_path"] = str(cfg.db_path.resolve())
+        payload["db_sha256"] = _file_sha256(cfg.db_path)
         if cfg.project_root is not None:
             payload["repo_root"] = str(cfg.project_root.resolve())
             payload["repo_head"] = _current_repo_head(cfg.project_root)

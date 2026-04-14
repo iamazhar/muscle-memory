@@ -80,11 +80,14 @@ def _benchmark_run_matches_repo(
     data: dict[str, object],
     repo_root: Path,
     benchmark_path: Path,
+    db_path: Path,
 ) -> bool:
     repo_head = data.get("repo_head")
     repo_path = data.get("repo_root")
     benchmark_run_path = data.get("benchmark_path")
     benchmark_sha256 = data.get("benchmark_sha256")
+    benchmark_db_path = data.get("db_path")
+    benchmark_db_sha256 = data.get("db_sha256")
     worktree_clean = data.get("worktree_clean")
     worktree_state = data.get("worktree_state")
     if (
@@ -92,6 +95,8 @@ def _benchmark_run_matches_repo(
         or not isinstance(repo_path, str)
         or not isinstance(benchmark_run_path, str)
         or not isinstance(benchmark_sha256, str)
+        or not isinstance(benchmark_db_path, str)
+        or not isinstance(benchmark_db_sha256, str)
         or not isinstance(worktree_clean, bool)
         or not isinstance(worktree_state, str)
     ):
@@ -106,12 +111,16 @@ def _benchmark_run_matches_repo(
         return False
     if not benchmark_path.exists():
         return False
+    if not db_path.exists():
+        return False
 
     return (
         Path(repo_path).expanduser().resolve() == repo_root.resolve()
         and repo_head == current_head
         and Path(benchmark_run_path).expanduser().resolve() == benchmark_path.resolve()
         and benchmark_sha256 == _file_sha256(benchmark_path)
+        and Path(benchmark_db_path).expanduser().resolve() == db_path.resolve()
+        and benchmark_db_sha256 == _file_sha256(db_path)
         and worktree_clean == current_worktree_clean
         and worktree_state == current_worktree_state
     )
@@ -148,7 +157,7 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
         data = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
-        if _benchmark_run_matches_repo(data, repo_root, benchmark_path):
+        if _benchmark_run_matches_repo(data, repo_root, benchmark_path, cfg.db_path):
             return data
 
     if not benchmark_path.exists():
