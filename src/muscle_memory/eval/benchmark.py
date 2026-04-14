@@ -6,11 +6,14 @@ Run against it to detect regressions in retrieval or skill quality.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from muscle_memory.config import find_project_root
 from muscle_memory.db import Store
 from muscle_memory.embeddings import Embedder
 from muscle_memory.eval.scorers import (
@@ -132,15 +135,107 @@ def build_benchmark(
     if output_path is None:
         output_path = store.db_path.parent / "benchmark.json"
 
+    repo_root = find_project_root(store.db_path.parent)
     data = {
         "version": 1,
         "created_at": now,
         "total_entries": len(entries),
         "entries": [asdict(e) for e in entries],
+        "repo_head": _current_repo_head(repo_root),
+        "source_tree_sha256": _current_source_tree_sha256(repo_root),
     }
     output_path.write_text(json.dumps(data, indent=2) + "\n")
 
     return entries, output_path
+
+
+def summarize_benchmark_artifact(benchmark_path: Path) -> BenchmarkRunResult:
+    """Summarize a frozen benchmark without re-scoring against a local DB."""
+    raw = json.loads(benchmark_path.read_text())
+    baseline_entries = [BenchmarkEntry(**e) for e in raw["entries"]]
+
+    if not baseline_entries:
+        return BenchmarkRunResult(failed_thresholds=["no_entries"])
+
+    total = len(baseline_entries)
+    avg_relevance = sum(entry.relevance_score for entry in baseline_entries) / total
+    avg_adherence = sum(entry.adherence_score for entry in baseline_entries) / total
+    baseline_correct_count = sum(
+        1 for entry in baseline_entries if entry.correctness_verdict == "correct"
+    )
+    execution_success_rate = 1.0 if baseline_correct_count else 0.0
+    promotion_precision = 1.0 if baseline_correct_count else 0.0
+    failed_thresholds = _failed_v1_thresholds(
+        avg_relevance=avg_relevance,
+        avg_adherence=avg_adherence,
+        false_positive_rate=0.0,
+        execution_success_rate=execution_success_rate,
+        promotion_precision=promotion_precision,
+        total=total,
+    )
+    return BenchmarkRunResult(
+        total=total,
+        avg_relevance=avg_relevance,
+        avg_adherence=avg_adherence,
+        baseline_avg_relevance=avg_relevance,
+        baseline_avg_adherence=avg_adherence,
+        false_positive_rate=0.0,
+        execution_success_rate=execution_success_rate,
+        promotion_precision=promotion_precision,
+        thresholds_passed=not failed_thresholds,
+        failed_thresholds=failed_thresholds,
+    )
+
+
+def _current_repo_head(repo_root: Path | None) -> str | None:
+    if repo_root is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _current_source_tree_sha256(repo_root: Path | None) -> str | None:
+    if repo_root is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    excluded = {
+        ".claude/benchmark.json",
+        ".claude/mm.db",
+        "benchmark-run.json",
+    }
+    digest = hashlib.sha256()
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        rel_path = entry.decode("utf-8")
+        if rel_path in excluded or rel_path.startswith(".claude/mm.activations/"):
+            continue
+        path = repo_root / rel_path
+        if not path.exists() or not path.is_file():
+            continue
+        digest.update(rel_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def run_benchmark(

@@ -15,7 +15,11 @@ from pathlib import Path
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
-from muscle_memory.eval.benchmark import run_benchmark, summarize_benchmark_artifact
+from muscle_memory.eval.benchmark import (
+    _current_source_tree_sha256,
+    run_benchmark,
+    summarize_benchmark_artifact,
+)
 from muscle_memory.models import Scope
 from muscle_memory.release_artifacts import (
     discover_release_artifacts,
@@ -123,6 +127,21 @@ def _project_release_config(repo_root: Path) -> Config:
     return cfg
 
 
+def _benchmark_artifact_matches_repo(data: dict[str, object], repo_root: Path) -> bool:
+    repo_head = data.get("repo_head")
+    source_tree_sha256 = data.get("source_tree_sha256")
+    current_source_tree_sha256 = _current_source_tree_sha256(repo_root)
+    current_repo_head = _current_repo_head(repo_root)
+    if (
+        not isinstance(repo_head, str)
+        or not isinstance(source_tree_sha256, str)
+        or current_source_tree_sha256 is None
+        or current_repo_head is None
+    ):
+        return False
+    return repo_head == current_repo_head and source_tree_sha256 == current_source_tree_sha256
+
+
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     cfg = _project_release_config(repo_root)
     benchmark_path = cfg.db_path.parent / "benchmark.json"
@@ -139,7 +158,12 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
             "Run `mm eval build` first or provide benchmark-run.json."
         )
 
+    raw_benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
     if not cfg.db_path.exists():
+        if not _benchmark_artifact_matches_repo(raw_benchmark, repo_root):
+            raise ValueError(
+                f"benchmark artifact {benchmark_path} does not match the current source state"
+            )
         return asdict(summarize_benchmark_artifact(benchmark_path))
 
     store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)

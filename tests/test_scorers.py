@@ -233,6 +233,32 @@ class TestBenchmark:
         assert len(data["entries"]) == 1
         assert data["entries"][0]["skill_id"] == skill.id
 
+    def test_build_records_source_tree_provenance(self, store, tmp_path, monkeypatch):
+        from muscle_memory.eval.benchmark import build_benchmark
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill)
+        episode = Episode(
+            user_prompt="run tests",
+            trajectory=_make_trajectory([("pytest", "5 passed in 1.2s")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+        )
+        store.add_episode(episode)
+
+        monkeypatch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
+        monkeypatch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark._current_source_tree_sha256",
+            lambda repo_root: "tree-sha",
+        )
+
+        _, path = build_benchmark(store, output_path=tmp_path / "bench.json")
+        data = json.loads(path.read_text())
+
+        assert data["repo_head"] == "abc123"
+        assert data["source_tree_sha256"] == "tree-sha"
+
     def test_run_detects_no_drift(self, store, tmp_path):
         from muscle_memory.eval.benchmark import build_benchmark, run_benchmark
 
