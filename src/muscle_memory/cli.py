@@ -20,6 +20,7 @@ from muscle_memory import __version__
 from muscle_memory.config import DEFAULT_HARNESS, Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
+from muscle_memory.eval.benchmark import _current_source_tree_sha256
 from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Outcome, Scope, Skill
 
 console = Console()
@@ -1596,6 +1597,7 @@ def eval_run(
         if cfg.project_root is not None:
             payload["repo_root"] = str(cfg.project_root.resolve())
             payload["repo_head"] = _current_repo_head(cfg.project_root)
+            payload["source_tree_sha256"] = _current_source_tree_sha256(cfg.project_root)
             worktree_clean, worktree_state = _current_worktree_state(cfg.project_root)
             payload["worktree_clean"] = worktree_clean
             payload["worktree_state"] = worktree_state

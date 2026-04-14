@@ -88,6 +88,7 @@ def _benchmark_run_matches_repo(
     benchmark_sha256 = data.get("benchmark_sha256")
     benchmark_db_path = data.get("db_path")
     benchmark_db_sha256 = data.get("db_sha256")
+    source_tree_sha256 = data.get("source_tree_sha256")
     worktree_clean = data.get("worktree_clean")
     worktree_state = data.get("worktree_state")
     if (
@@ -97,6 +98,7 @@ def _benchmark_run_matches_repo(
         or not isinstance(benchmark_sha256, str)
         or not isinstance(benchmark_db_path, str)
         or not isinstance(benchmark_db_sha256, str)
+        or not isinstance(source_tree_sha256, str)
         or not isinstance(worktree_clean, bool)
         or not isinstance(worktree_state, str)
     ):
@@ -104,6 +106,9 @@ def _benchmark_run_matches_repo(
 
     current_head = _current_repo_head(repo_root)
     if current_head is None:
+        return False
+    current_source_tree_sha256 = _current_source_tree_sha256(repo_root)
+    if current_source_tree_sha256 is None:
         return False
 
     current_worktree_clean, current_worktree_state = _current_worktree_state(repo_root)
@@ -121,6 +126,7 @@ def _benchmark_run_matches_repo(
         and benchmark_sha256 == _file_sha256(benchmark_path)
         and Path(benchmark_db_path).expanduser().resolve() == db_path.resolve()
         and benchmark_db_sha256 == _file_sha256(db_path)
+        and source_tree_sha256 == current_source_tree_sha256
         and worktree_clean == current_worktree_clean
         and worktree_state == current_worktree_state
     )

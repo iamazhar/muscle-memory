@@ -527,6 +527,7 @@ def test_eval_run_json_reports_payload_and_exit_code(
         patch("muscle_memory.cli._open_store", return_value=fake_store),
         patch("muscle_memory.cli._current_repo_head", return_value="abc123"),
         patch("muscle_memory.cli._current_worktree_state", return_value=(True, "clean-state")),
+        patch("muscle_memory.cli._current_source_tree_sha256", return_value="source-tree-sha"),
         patch(
             "muscle_memory.cli._file_sha256",
             side_effect=lambda path: "db-sha" if path == db_path else "bench-sha",
@@ -559,6 +560,7 @@ def test_eval_run_json_reports_payload_and_exit_code(
         "db_sha256": "db-sha",
         "repo_root": str(tmp_path.resolve()),
         "repo_head": "abc123",
+        "source_tree_sha256": "source-tree-sha",
         "worktree_clean": True,
         "worktree_state": "clean-state",
     }

@@ -54,12 +54,20 @@ def _write_repo_fixture(tmp_path: Path, *, version: str = "0.8.0", changelog_ver
     )
 
 
-def _write_successful_benchmark_run(path: Path, *, repo_root: Path | None = None, repo_head: str | None = None) -> None:
+def _write_successful_benchmark_run(
+    path: Path,
+    *,
+    repo_root: Path | None = None,
+    repo_head: str | None = None,
+    source_tree_sha256: str | None = None,
+) -> None:
     data = {"thresholds_passed": True, "failed_thresholds": []}
     if repo_root is not None:
         data["repo_root"] = str(repo_root)
     if repo_head is not None:
         data["repo_head"] = repo_head
+    if source_tree_sha256 is not None:
+        data["source_tree_sha256"] = source_tree_sha256
     data.setdefault("worktree_clean", True)
     data.setdefault("worktree_state", hashlib.sha256(b"").hexdigest())
     path.write_text(
@@ -125,6 +133,7 @@ def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monk
         tmp_path / "benchmark-run.json",
         repo_root=tmp_path,
         repo_head="abc123",
+        source_tree_sha256="tree-sha",
     )
     data = json.loads((tmp_path / "benchmark-run.json").read_text(encoding="utf-8"))
     data["benchmark_path"] = str(benchmark_path.resolve())
@@ -137,6 +146,11 @@ def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monk
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_worktree_state",
         lambda repo_root: (True, hashlib.sha256(b"").hexdigest()),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root: "tree-sha",
         raising=False,
     )
     monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
@@ -206,6 +220,7 @@ def test_load_release_benchmark_ignores_stale_repo_benchmark_run(
         tmp_path / "benchmark-run.json",
         repo_root=tmp_path,
         repo_head="abc123",
+        source_tree_sha256="tree-sha",
     )
     data = json.loads((tmp_path / "benchmark-run.json").read_text(encoding="utf-8"))
     data["benchmark_path"] = str(benchmark_path.resolve())
@@ -450,6 +465,7 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
         cli_patch.setattr("muscle_memory.cli._open_store", lambda cfg: object())
         cli_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
         cli_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        cli_patch.setattr("muscle_memory.cli._current_source_tree_sha256", lambda repo_root: "tree-sha")
         cli_patch.setattr(
             "muscle_memory.cli._file_sha256",
             lambda path: "db-sha" if path == db_path else "bench-sha",
@@ -464,6 +480,10 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
         preflight_patch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
         preflight_patch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
         preflight_patch.setattr(
+            "muscle_memory.release_preflight._current_source_tree_sha256",
+            lambda repo_root: "tree-sha",
+        )
+        preflight_patch.setattr(
             "muscle_memory.release_preflight._file_sha256",
             lambda path: "db-sha" if path == db_path else "bench-sha",
         )
@@ -476,6 +496,7 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
     assert data["benchmark_sha256"] == "bench-sha"
     assert data["db_path"] == str(db_path.resolve())
     assert data["db_sha256"] == "db-sha"
+    assert data["source_tree_sha256"] == "tree-sha"
 
 
 def test_load_release_benchmark_ignores_stale_db_identity(
@@ -600,6 +621,75 @@ def test_load_release_benchmark_ignores_dirty_worktree_cache(
 
     assert data["thresholds_passed"] is False
     assert "avg_relevance" in data["failed_thresholds"]
+
+
+def test_load_release_benchmark_ignores_changed_dirty_file_content(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    db_path = tmp_path / ".claude" / "mm.db"
+    db_path.write_text("db\n", encoding="utf-8")
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+    (tmp_path / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "thresholds_passed": True,
+                "failed_thresholds": [],
+                "repo_root": str(tmp_path.resolve()),
+                "repo_head": "abc123",
+                "source_tree_sha256": "old-dirty-tree",
+                "worktree_clean": False,
+                "worktree_state": "dirty-state",
+                "benchmark_path": str(benchmark_path.resolve()),
+                "benchmark_sha256": "bench-sha",
+                "db_path": str(db_path.resolve()),
+                "db_sha256": "db-sha",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    expected = BenchmarkRunResult(
+        total=1,
+        avg_relevance=0.9,
+        avg_adherence=0.9,
+        false_positive_rate=0.0,
+        execution_success_rate=1.0,
+        promotion_precision=1.0,
+        thresholds_passed=True,
+        failed_thresholds=[],
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeStore:
+        def __init__(self, db_path: Path, *, embedding_dims: int) -> None:
+            captured["db_path"] = db_path
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (False, "dirty-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root: "new-dirty-tree",
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._file_sha256",
+        lambda path: "db-sha" if path == db_path else "bench-sha",
+    )
+    monkeypatch.setattr("muscle_memory.release_preflight.Store", _FakeStore)
+    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.run_benchmark",
+        lambda store, path, embedder=None: expected,
+    )
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data == asdict(expected)
+    assert captured["db_path"] == db_path
 
 
 def test_load_release_benchmark_ignores_mismatched_benchmark_identity(
