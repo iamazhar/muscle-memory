@@ -162,9 +162,11 @@ def run_benchmark(
     new_adherences: list[float] = []
     baseline_relevances: list[float] = []
     baseline_adherences: list[float] = []
-    correct_count = 0
-    incorrect_count = 0
-    execution_success_count = 0
+    baseline_correct_count = 0
+    baseline_incorrect_count = 0
+    true_positive_count = 0
+    false_positive_count = 0
+    predicted_positive_count = 0
 
     for entry in baseline_entries:
         ep = store.get_episode(entry.episode_id)
@@ -181,12 +183,17 @@ def run_benchmark(
         new_adherences.append(adh.score)
         baseline_relevances.append(entry.relevance_score)
         baseline_adherences.append(entry.adherence_score)
-        if adh.score >= 0.5:
-            execution_success_count += 1
-        if cor.verdict == "correct":
-            correct_count += 1
-        elif cor.verdict == "incorrect":
-            incorrect_count += 1
+        baseline_verdict = entry.correctness_verdict
+        if baseline_verdict == "correct":
+            baseline_correct_count += 1
+            if cor.verdict == "correct":
+                true_positive_count += 1
+        elif baseline_verdict == "incorrect":
+            baseline_incorrect_count += 1
+            if cor.verdict == "correct":
+                false_positive_count += 1
+        if cor.verdict == "correct" and baseline_verdict in {"correct", "incorrect"}:
+            predicted_positive_count += 1
 
         rel_delta = rel.score - entry.relevance_score
         adh_delta = adh.score - entry.adherence_score
@@ -215,10 +222,15 @@ def run_benchmark(
     avg_adherence = sum(new_adherences) / total if total else 0.0
     baseline_avg_relevance = sum(baseline_relevances) / total if total else 0.0
     baseline_avg_adherence = sum(baseline_adherences) / total if total else 0.0
-    promotion_total = correct_count + incorrect_count
-    false_positive_rate = incorrect_count / total if total else 0.0
-    execution_success_rate = execution_success_count / total if total else 0.0
-    promotion_precision = correct_count / promotion_total if promotion_total else 0.0
+    false_positive_rate = (
+        false_positive_count / baseline_incorrect_count if baseline_incorrect_count else 0.0
+    )
+    execution_success_rate = (
+        true_positive_count / baseline_correct_count if baseline_correct_count else 0.0
+    )
+    promotion_precision = (
+        true_positive_count / predicted_positive_count if predicted_positive_count else 0.0
+    )
     failed_thresholds = _failed_v1_thresholds(
         avg_relevance=avg_relevance,
         avg_adherence=avg_adherence,

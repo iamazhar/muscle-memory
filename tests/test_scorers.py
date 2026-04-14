@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import json
 import uuid
+from unittest.mock import patch
 
 import pytest
+from typer.testing import CliRunner
 
+from muscle_memory.cli import app
+from muscle_memory.config import Config
 from muscle_memory.db import Store
+from muscle_memory.eval.benchmark import BenchmarkRunResult
 from muscle_memory.eval.scorers import (
     AdherenceScore,
     _extract_step_tokens,
@@ -16,7 +21,9 @@ from muscle_memory.eval.scorers import (
     score_correctness,
     score_relevance,
 )
-from muscle_memory.models import Episode, Outcome, Skill, ToolCall, Trajectory
+from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
+
+runner = CliRunner()
 
 
 @pytest.fixture
@@ -273,3 +280,141 @@ class TestBenchmark:
         assert result.promotion_precision == pytest.approx(1.0)
         assert result.thresholds_passed is True
         assert result.failed_thresholds == []
+
+    def test_run_uses_frozen_correctness_labels_for_gate_metrics(self, store, tmp_path):
+        from muscle_memory.eval.benchmark import run_benchmark
+
+        class _FakeEmbedder:
+            def embed_one(self, text: str) -> list[float]:
+                return [1.0, 0.0, 0.0, 0.0]
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill, embedding=[1.0, 0.0, 0.0, 0.0])
+        episode = Episode(
+            user_prompt="run tests",
+            trajectory=_make_trajectory([("pytest", "5 passed in 1.2s")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+        )
+        store.add_episode(episode)
+
+        benchmark_path = tmp_path / "bench.json"
+        benchmark_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "skill_id": skill.id,
+                            "skill_activation": skill.activation,
+                            "episode_id": episode.id,
+                            "user_prompt": episode.user_prompt,
+                            "relevance_score": 1.0,
+                            "adherence_score": 1.0,
+                            "correctness_verdict": "incorrect",
+                            "correctness_confidence": "human",
+                            "outcome": episode.outcome.value,
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
+
+        result = run_benchmark(store, benchmark_path, embedder=_FakeEmbedder())
+
+        assert result.false_positive_rate == pytest.approx(1.0)
+        assert result.execution_success_rate == pytest.approx(0.0)
+        assert result.promotion_precision == pytest.approx(0.0)
+        assert "false_positive_rate" in result.failed_thresholds
+        assert "promotion_precision" in result.failed_thresholds
+
+    def test_run_does_not_count_failed_execution_as_success(self, store, tmp_path):
+        from muscle_memory.eval.benchmark import build_benchmark, run_benchmark
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill)
+        episode = Episode(
+            user_prompt="run tests",
+            trajectory=_make_trajectory([("pytest", "1 failed in 0.8s")]),
+            outcome=Outcome.FAILURE,
+            activated_skills=[skill.id],
+        )
+        store.add_episode(episode)
+
+        _, benchmark_path = build_benchmark(store, output_path=tmp_path / "bench.json")
+        result = run_benchmark(store, benchmark_path)
+
+        assert result.execution_success_rate == pytest.approx(0.0)
+        assert "execution_success_rate" in result.failed_thresholds
+
+
+@pytest.mark.parametrize(
+    ("thresholds_passed", "expected_exit_code", "failed_thresholds"),
+    [
+        (True, 0, []),
+        (False, 1, ["avg_relevance"]),
+    ],
+)
+def test_eval_run_json_reports_payload_and_exit_code(
+    tmp_path,
+    thresholds_passed: bool,
+    expected_exit_code: int,
+    failed_thresholds: list[str],
+) -> None:
+    benchmark_path = tmp_path / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    fake_store = object()
+    fake_embedder = object()
+    benchmark_result = BenchmarkRunResult(
+        total=2,
+        avg_relevance=0.9,
+        avg_adherence=0.95,
+        baseline_avg_relevance=0.88,
+        baseline_avg_adherence=0.93,
+        false_positive_rate=0.0,
+        execution_success_rate=1.0,
+        promotion_precision=1.0,
+        thresholds_passed=thresholds_passed,
+        failed_thresholds=failed_thresholds,
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_make_embedder(cfg: Config) -> object:
+        captured["config"] = cfg
+        return fake_embedder
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=config),
+        patch("muscle_memory.cli._open_store", return_value=fake_store),
+        patch("muscle_memory.cli.make_embedder", side_effect=_fake_make_embedder),
+        patch("muscle_memory.eval.benchmark.run_benchmark", return_value=benchmark_result) as mock_run,
+    ):
+        result = runner.invoke(
+            app,
+            ["eval", "run", "--benchmark", str(benchmark_path), "--json"],
+        )
+
+    assert result.exit_code == expected_exit_code
+    assert json.loads(result.output) == {
+        "total": 2,
+        "avg_relevance": 0.9,
+        "avg_adherence": 0.95,
+        "baseline_avg_relevance": 0.88,
+        "baseline_avg_adherence": 0.93,
+        "false_positive_rate": 0.0,
+        "execution_success_rate": 1.0,
+        "promotion_precision": 1.0,
+        "thresholds_passed": thresholds_passed,
+        "failed_thresholds": failed_thresholds,
+        "improved": [],
+        "degraded": [],
+    }
+    assert captured["config"] is config
+    mock_run.assert_called_once_with(fake_store, benchmark_path, embedder=fake_embedder)

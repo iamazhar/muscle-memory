@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from muscle_memory.config import Config
+from muscle_memory.db import Store
+from muscle_memory.eval.benchmark import build_benchmark
+from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
 from muscle_memory.release_preflight import (
     distribution_paths,
+    run_release_preflight,
     validate_release_benchmark,
     validate_release_metadata,
 )
@@ -38,6 +44,21 @@ def _write_repo_fixture(tmp_path: Path, *, version: str = "0.8.0", changelog_ver
         f"# Changelog\n\n## [{changelog_version}]\n\n- Notes\n",
         encoding="utf-8",
     )
+
+
+def _write_successful_benchmark_run(path: Path) -> None:
+    path.write_text(
+        json.dumps({"thresholds_passed": True, "failed_thresholds": []}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _fake_release_build(command: list[str], cwd: Path) -> None:
+    if command[:3] == ["uv", "build", "--out-dir"]:
+        dist_dir = Path(command[3])
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        (dist_dir / "muscle_memory-0.8.0-py3-none-any.whl").write_text("wheel", encoding="utf-8")
+        (dist_dir / "muscle_memory-0.8.0.tar.gz").write_text("sdist", encoding="utf-8")
 
 
 def test_validate_release_metadata_accepts_matching_files(tmp_path: Path) -> None:
@@ -76,3 +97,62 @@ def test_validate_release_benchmark_rejects_failed_thresholds(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="benchmark thresholds failed"):
         validate_release_benchmark(benchmark)
+
+
+def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monkeypatch) -> None:
+    _write_repo_fixture(tmp_path)
+    _write_successful_benchmark_run(tmp_path / "benchmark-run.json")
+
+    monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
+    monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
+    monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
+
+    run_release_preflight("0.8.0", tmp_path)
+
+
+def test_run_release_preflight_falls_back_to_recomputing_benchmark(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _FakeEmbedder:
+        def embed_one(self, text: str) -> list[float]:
+            return [1.0, 0.0, 0.0, 0.0]
+
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".git").mkdir()
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    store = Store(config.db_path, embedding_dims=4)
+    skill = Skill(
+        activation="When pytest fails",
+        execution="1. Run `pytest`",
+        termination="Tests pass",
+    )
+    store.add_skill(skill, embedding=[1.0, 0.0, 0.0, 0.0])
+    store.add_episode(
+        Episode(
+            user_prompt="run tests",
+            trajectory=Trajectory(
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")]
+            ),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+        )
+    )
+    build_benchmark(
+        store,
+        embedder=_FakeEmbedder(),
+        output_path=config.db_path.parent / "benchmark.json",
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight.Config.load", lambda **kwargs: config)
+    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: _FakeEmbedder())
+    monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
+    monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
+    monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
+
+    run_release_preflight("0.8.0", tmp_path)

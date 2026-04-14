@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import re
 import subprocess
@@ -10,6 +11,10 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from muscle_memory.config import Config
+from muscle_memory.db import Store
+from muscle_memory.embeddings import make_embedder
+from muscle_memory.eval.benchmark import run_benchmark
 from muscle_memory.release_artifacts import (
     discover_release_artifacts,
     verify_release_artifacts,
@@ -18,11 +23,32 @@ from muscle_memory.release_artifacts import (
 from muscle_memory.release_notes import extract_release_notes
 
 
-def validate_release_benchmark(path: Path) -> None:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _validate_release_benchmark_data(data: dict[str, object]) -> None:
     if not data.get("thresholds_passed"):
         failed = ", ".join(data.get("failed_thresholds", [])) or "unknown"
         raise ValueError(f"benchmark thresholds failed: {failed}")
+
+
+def validate_release_benchmark(path: Path) -> None:
+    _validate_release_benchmark_data(json.loads(path.read_text(encoding="utf-8")))
+
+
+def load_release_benchmark(repo_root: Path) -> dict[str, object]:
+    benchmark_run_path = repo_root / "benchmark-run.json"
+    if benchmark_run_path.exists():
+        return json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+
+    cfg = Config.load(start_dir=repo_root)
+    benchmark_path = cfg.db_path.parent / "benchmark.json"
+    if not benchmark_path.exists():
+        raise ValueError(
+            "missing benchmark results: "
+            f"expected {benchmark_run_path} or {benchmark_path}. "
+            "Run `mm eval build` first or provide benchmark-run.json."
+        )
+
+    store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+    return asdict(run_benchmark(store, benchmark_path, embedder=make_embedder(cfg)))
 
 
 def validate_release_metadata(version: str, repo_root: Path) -> None:
@@ -59,7 +85,7 @@ def distribution_paths(version: str, dist_dir: Path) -> list[Path]:
 
 def run_release_preflight(version: str, repo_root: Path) -> None:
     validate_release_metadata(version, repo_root)
-    validate_release_benchmark(repo_root / "benchmark-run.json")
+    _validate_release_benchmark_data(load_release_benchmark(repo_root))
     changelog = (repo_root / "CHANGELOG.md").read_text(encoding="utf-8")
     extract_release_notes(version, changelog)
 

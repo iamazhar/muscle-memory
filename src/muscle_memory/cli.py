@@ -1542,7 +1542,7 @@ def eval_run(
         console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
         return
 
-    result = run_benchmark(store, path, embedder=make_embedder(cfg.embedding_dims))
+    result = run_benchmark(store, path, embedder=make_embedder(cfg))
 
     if as_json:
         typer.echo(json.dumps(asdict(result), indent=2))
