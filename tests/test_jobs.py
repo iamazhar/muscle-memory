@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from muscle_memory.hooks.stop import _has_running_job
 from muscle_memory.models import BackgroundJob, JobKind, JobStatus
 
 
@@ -40,3 +41,10 @@ def test_store_updates_job_status_attempts_and_error(tmp_db) -> None:
     assert loaded.status is JobStatus.FAILED
     assert loaded.attempts == 1
     assert loaded.error == "subprocess failed"
+
+
+def test_has_running_job_ignores_succeeded_jobs(tmp_db) -> None:
+    tmp_db.add_job(BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.SUCCEEDED))
+    tmp_db.add_job(BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.RUNNING))
+
+    assert _has_running_job(tmp_db, JobKind.REFINE) is True

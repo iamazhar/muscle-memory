@@ -137,9 +137,12 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.flush()
 
         # v0.2: also fire a refinement sweep. It's a no-op unless
-        # some skill meets the auto-refine criteria (failures ≥ 2,
-        # score ≤ 0.6, invocations ≥ 5). Runs detached.
-        if _any_skill_needs_refinement(store):
+        # auto-refinement is enabled, some skill meets the auto-refine
+        # criteria (failures ≥ 2, score ≤ 0.6, invocations ≥ 5), and
+        # no refine job is already pending or running.
+        if cfg.auto_refine_enabled and _any_skill_needs_refinement(store) and not _has_running_job(
+            store, JobKind.REFINE
+        ):
             refine_job = BackgroundJob(kind=JobKind.REFINE, payload={})
             store.add_job(refine_job)
             _fire_async_refinement(cfg.db_path, job_id=refine_job.id)
@@ -171,6 +174,17 @@ def _any_skill_needs_refinement(store: Store) -> bool:
 
         for skill in store.list_skills():
             if should_auto_refine(skill):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _has_running_job(store: Store, kind: JobKind) -> bool:
+    """Return True when a job of `kind` is already pending or running."""
+    try:
+        for job in store.list_jobs(limit=None, kind=kind):
+            if job.status in {JobStatus.PENDING, JobStatus.RUNNING}:
                 return True
     except Exception:
         pass
