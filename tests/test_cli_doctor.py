@@ -68,4 +68,25 @@ def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     assert data["retrieval_telemetry"]["avg_total_ms"] == 6.6
     assert len(data["recent_retrieval_decisions"]) == 2
     assert data["recent_retrieval_decisions"][0]["event"] == "hits_returned"
-    assert data["recent_retrieval_decisions"][1]["why"] == "no trusted skills passed retrieval filters"
+    assert data["recent_retrieval_decisions"][1]["why"] == "weak semantic hit without lexical corroboration"
+
+
+def test_doctor_maps_lexical_prefilter_skip_reason(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    claude_dir = store_dir / ".claude"
+    claude_dir.mkdir()
+    cfg = _make_config(store_dir, debug_enabled=True)
+    Store(cfg.db_path)
+    log_path = claude_dir / "mm.debug.log"
+    log_path.write_text(
+        '{"event":"no_hits","component":"user_prompt","session_id":"sess-a","prompt_excerpt":"capital of france","lexical_prefilter_skipped":true,"retrieve_ms":0.2,"total_ms":0.2}\n',
+        encoding="utf-8",
+    )
+
+    with patch("muscle_memory.cli._load_config", return_value=cfg):
+        result = runner.invoke(app, ["doctor", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data["recent_retrieval_decisions"]) == 1
+    assert data["recent_retrieval_decisions"][0]["why"] == "no lexical overlap with trusted skills"
