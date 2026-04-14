@@ -78,15 +78,11 @@ def build_benchmark(
     entries: list[BenchmarkEntry] = []
     now = datetime.now(UTC).isoformat()
 
-    # Deduplicate by session: keep only latest episode per session
+    # Episodes are already newest-first, so keep the first one we see per session.
     by_session: dict[str, Episode] = {}
     for ep in episodes:
         sid = ep.session_id or ep.id
-        existing = by_session.get(sid)
-        if (
-            existing is None
-            or ep.trajectory.num_tool_calls() > existing.trajectory.num_tool_calls()
-        ):
+        if sid not in by_session:
             by_session[sid] = ep
 
     for ep in by_session.values():
@@ -96,7 +92,7 @@ def build_benchmark(
         # Load stored distances from sidecar
         distances = load_activation_distances(store.db_path, ep.session_id or "")
 
-        for skill_id in set(ep.activated_skills):
+        for skill_id in dict.fromkeys(ep.activated_skills):
             skill = store.get_skill(skill_id)
             if skill is None:
                 continue

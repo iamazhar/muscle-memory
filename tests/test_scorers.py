@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -258,6 +259,76 @@ class TestBenchmark:
 
         assert data["repo_head"] == "abc123"
         assert data["source_tree_sha256"] == "tree-sha"
+
+    def test_build_keeps_latest_episode_per_session(self, store, tmp_path):
+        from muscle_memory.eval.benchmark import build_benchmark
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill)
+
+        older = Episode(
+            session_id="shared-session",
+            user_prompt="older prompt",
+            trajectory=_make_trajectory(
+                [
+                    ("pytest", "still failing"),
+                    ("sed -n '1,10p' file.py", "output"),
+                ]
+            ),
+            outcome=Outcome.FAILURE,
+            activated_skills=[skill.id],
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+        )
+        newer = Episode(
+            session_id="shared-session",
+            user_prompt="newer prompt",
+            trajectory=_make_trajectory([("pytest", "5 passed")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+            started_at=datetime(2024, 1, 2, tzinfo=UTC),
+            ended_at=datetime(2024, 1, 2, 0, 1, tzinfo=UTC),
+        )
+        store.add_episode(older)
+        store.add_episode(newer)
+
+        entries, _ = build_benchmark(store, output_path=tmp_path / "bench.json")
+
+        assert [entry.episode_id for entry in entries] == [newer.id]
+        assert [entry.user_prompt for entry in entries] == ["newer prompt"]
+
+    def test_build_preserves_skill_activation_order_deterministically(
+        self, store, tmp_path, monkeypatch
+    ):
+        import muscle_memory.eval.benchmark as benchmark_module
+
+        from muscle_memory.eval.benchmark import build_benchmark
+
+        first_skill = _make_skill(execution="1. Run `pytest`")
+        second_skill = _make_skill(execution="1. Run `ruff check`")
+        store.add_skill(first_skill)
+        store.add_skill(second_skill)
+
+        episode = Episode(
+            user_prompt="run checks",
+            trajectory=_make_trajectory([("python -m pytest", "5 passed")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[second_skill.id, first_skill.id, second_skill.id],
+            started_at=datetime.now(UTC) + timedelta(seconds=1),
+        )
+        store.add_episode(episode)
+
+        # If the builder reaches for module-level `set(...)`, force the wrong order.
+        monkeypatch.setattr(
+            benchmark_module,
+            "set",
+            lambda values: [first_skill.id, second_skill.id],
+            raising=False,
+        )
+
+        entries, _ = build_benchmark(store, output_path=tmp_path / "bench.json")
+
+        assert [entry.skill_id for entry in entries] == [second_skill.id, first_skill.id]
 
     def test_source_tree_provenance_changes_for_untracked_source_files(self, tmp_path, monkeypatch):
         from muscle_memory.eval.benchmark import _current_source_tree_sha256
