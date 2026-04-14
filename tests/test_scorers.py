@@ -259,6 +259,38 @@ class TestBenchmark:
         assert data["repo_head"] == "abc123"
         assert data["source_tree_sha256"] == "tree-sha"
 
+    def test_source_tree_provenance_changes_for_untracked_source_files(self, tmp_path, monkeypatch):
+        from muscle_memory.eval.benchmark import _current_source_tree_sha256
+
+        tracked = tmp_path / "tracked.py"
+        tracked.write_text("print('tracked')\n", encoding="utf-8")
+        git_list = b"tracked.py\0"
+
+        class _Result:
+            def __init__(self, stdout: bytes) -> None:
+                self.stdout = stdout
+
+        state = {"include_untracked": False}
+
+        def _fake_run(command, **kwargs):
+            if "--others" in command:
+                return _Result(b"new_module.py\0" if state["include_untracked"] else b"")
+            return _Result(git_list)
+
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark.subprocess.run",
+            _fake_run,
+        )
+
+        before = _current_source_tree_sha256(tmp_path)
+        (tmp_path / "new_module.py").write_text("print('untracked')\n", encoding="utf-8")
+        state["include_untracked"] = True
+        after = _current_source_tree_sha256(tmp_path)
+
+        assert before is not None
+        assert after is not None
+        assert before != after
+
     def test_run_detects_no_drift(self, store, tmp_path):
         from muscle_memory.eval.benchmark import build_benchmark, run_benchmark
 

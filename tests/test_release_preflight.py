@@ -324,6 +324,50 @@ def test_load_release_benchmark_rejects_stale_frozen_artifact_without_project_db
         load_release_benchmark(tmp_path)
 
 
+def test_load_release_benchmark_rejects_untracked_source_file_without_project_db(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repo_head": "abc123",
+                "source_tree_sha256": "tracked-only-tree",
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.9,
+                        "adherence_score": 0.95,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "scratch.py").write_text("print('new helper')\n", encoding="utf-8")
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root: "tracked-plus-untracked-tree",
+    )
+
+    with pytest.raises(ValueError, match="does not match the current source state"):
+        load_release_benchmark(tmp_path)
+
+
 def test_load_release_benchmark_recompute_ignores_mm_db_env(
     tmp_path: Path,
     monkeypatch,

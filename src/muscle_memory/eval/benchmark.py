@@ -207,8 +207,14 @@ def _current_source_tree_sha256(repo_root: Path | None) -> str | None:
     if repo_root is None:
         return None
     try:
-        result = subprocess.run(
+        tracked_result = subprocess.run(
             ["git", "ls-files", "-z"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+        untracked_result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
             cwd=repo_root,
             check=True,
             capture_output=True,
@@ -221,12 +227,21 @@ def _current_source_tree_sha256(repo_root: Path | None) -> str | None:
         ".claude/mm.db",
         "benchmark-run.json",
     }
+    excluded_prefixes = (
+        ".claude/mm.activations/",
+        ".git/",
+        ".hermes/",
+        "docs/superpowers/plans/",
+    )
     digest = hashlib.sha256()
-    for entry in result.stdout.split(b"\0"):
-        if not entry:
-            continue
-        rel_path = entry.decode("utf-8")
-        if rel_path in excluded or rel_path.startswith(".claude/mm.activations/"):
+    rel_paths = {
+        entry.decode("utf-8")
+        for raw in (tracked_result.stdout, untracked_result.stdout)
+        for entry in raw.split(b"\0")
+        if entry
+    }
+    for rel_path in sorted(rel_paths):
+        if rel_path in excluded or rel_path.startswith(excluded_prefixes):
             continue
         path = repo_root / rel_path
         if not path.exists() or not path.is_file():
