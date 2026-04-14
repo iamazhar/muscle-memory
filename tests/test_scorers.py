@@ -393,6 +393,9 @@ def test_eval_run_json_reports_payload_and_exit_code(
     with (
         patch("muscle_memory.cli._load_config", return_value=config),
         patch("muscle_memory.cli._open_store", return_value=fake_store),
+        patch("muscle_memory.cli._current_repo_head", return_value="abc123"),
+        patch("muscle_memory.cli._current_worktree_state", return_value=(True, "clean-state")),
+        patch("muscle_memory.cli._file_sha256", return_value="bench-sha"),
         patch("muscle_memory.cli.make_embedder", side_effect=_fake_make_embedder),
         patch("muscle_memory.eval.benchmark.run_benchmark", return_value=benchmark_result) as mock_run,
     ):
@@ -415,6 +418,12 @@ def test_eval_run_json_reports_payload_and_exit_code(
         "failed_thresholds": failed_thresholds,
         "improved": [],
         "degraded": [],
+        "benchmark_path": str(benchmark_path.resolve()),
+        "benchmark_sha256": "bench-sha",
+        "repo_root": str(tmp_path.resolve()),
+        "repo_head": "abc123",
+        "worktree_clean": True,
+        "worktree_state": "clean-state",
     }
     assert captured["config"] is config
     mock_run.assert_called_once_with(fake_store, benchmark_path, embedder=fake_embedder)

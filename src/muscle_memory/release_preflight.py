@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 import re
 import subprocess
@@ -14,7 +15,7 @@ from pathlib import Path
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
-from muscle_memory.eval.benchmark import run_benchmark
+from muscle_memory.eval.benchmark import run_benchmark, summarize_benchmark_artifact
 from muscle_memory.models import Scope
 from muscle_memory.release_artifacts import (
     discover_release_artifacts,
@@ -48,17 +49,68 @@ def _current_repo_head(repo_root: Path) -> str | None:
     return result.stdout.strip() or None
 
 
-def _benchmark_run_matches_repo(data: dict[str, object], repo_root: Path) -> bool:
+def _current_worktree_state(repo_root: Path) -> tuple[bool | None, str | None]:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None, None
+    status = result.stdout
+    return status == "", hashlib.sha256(status.encode("utf-8")).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _benchmark_run_matches_repo(
+    data: dict[str, object],
+    repo_root: Path,
+    benchmark_path: Path,
+) -> bool:
     repo_head = data.get("repo_head")
     repo_path = data.get("repo_root")
-    if not isinstance(repo_head, str) or not isinstance(repo_path, str):
+    benchmark_run_path = data.get("benchmark_path")
+    benchmark_sha256 = data.get("benchmark_sha256")
+    worktree_clean = data.get("worktree_clean")
+    worktree_state = data.get("worktree_state")
+    if (
+        not isinstance(repo_head, str)
+        or not isinstance(repo_path, str)
+        or not isinstance(benchmark_run_path, str)
+        or not isinstance(benchmark_sha256, str)
+        or not isinstance(worktree_clean, bool)
+        or not isinstance(worktree_state, str)
+    ):
         return False
 
     current_head = _current_repo_head(repo_root)
     if current_head is None:
         return False
 
-    return Path(repo_path).expanduser().resolve() == repo_root.resolve() and repo_head == current_head
+    current_worktree_clean, current_worktree_state = _current_worktree_state(repo_root)
+    if current_worktree_state is None:
+        return False
+    if not benchmark_path.exists():
+        return False
+
+    return (
+        Path(repo_path).expanduser().resolve() == repo_root.resolve()
+        and repo_head == current_head
+        and Path(benchmark_run_path).expanduser().resolve() == benchmark_path.resolve()
+        and benchmark_sha256 == _file_sha256(benchmark_path)
+        and worktree_clean == current_worktree_clean
+        and worktree_state == current_worktree_state
+    )
 
 
 def _project_release_config(repo_root: Path) -> Config:
@@ -72,20 +124,23 @@ def _project_release_config(repo_root: Path) -> Config:
 
 
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
+    cfg = _project_release_config(repo_root)
+    benchmark_path = cfg.db_path.parent / "benchmark.json"
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
         data = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
-        if _benchmark_run_matches_repo(data, repo_root):
+        if _benchmark_run_matches_repo(data, repo_root, benchmark_path):
             return data
 
-    cfg = _project_release_config(repo_root)
-    benchmark_path = cfg.db_path.parent / "benchmark.json"
     if not benchmark_path.exists():
         raise ValueError(
             "missing benchmark results: "
             f"expected {benchmark_run_path} or {benchmark_path}. "
             "Run `mm eval build` first or provide benchmark-run.json."
         )
+
+    if not cfg.db_path.exists():
+        return asdict(summarize_benchmark_artifact(benchmark_path))
 
     store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
     return asdict(run_benchmark(store, benchmark_path, embedder=make_embedder(cfg)))

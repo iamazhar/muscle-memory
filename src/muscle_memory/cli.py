@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -67,6 +69,47 @@ def _open_store(cfg: Config) -> Store:
         )
         raise typer.Exit(2)
     return Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+
+
+def _current_repo_head(repo_root: Path | None) -> str | None:
+    if repo_root is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _current_worktree_state(repo_root: Path | None) -> tuple[bool | None, str | None]:
+    if repo_root is None:
+        return None, None
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None, None
+    status = result.stdout
+    return status == "", hashlib.sha256(status.encode("utf-8")).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _format_maturity(m: Maturity) -> str:
@@ -1545,7 +1588,16 @@ def eval_run(
     result = run_benchmark(store, path, embedder=make_embedder(cfg))
 
     if as_json:
-        typer.echo(json.dumps(asdict(result), indent=2))
+        payload = asdict(result)
+        payload["benchmark_path"] = str(path.resolve())
+        payload["benchmark_sha256"] = _file_sha256(path)
+        if cfg.project_root is not None:
+            payload["repo_root"] = str(cfg.project_root.resolve())
+            payload["repo_head"] = _current_repo_head(cfg.project_root)
+            worktree_clean, worktree_state = _current_worktree_state(cfg.project_root)
+            payload["worktree_clean"] = worktree_clean
+            payload["worktree_state"] = worktree_state
+        typer.echo(json.dumps(payload, indent=2))
         raise typer.Exit(0 if result.thresholds_passed else 1)
 
     console.print(f"[bold]Benchmark Run[/bold] ({result.total} entries)\n")

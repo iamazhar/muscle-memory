@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from muscle_memory.cli import app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.eval.benchmark import BenchmarkRunResult
@@ -20,6 +23,8 @@ from muscle_memory.release_preflight import (
     validate_release_benchmark,
     validate_release_metadata,
 )
+
+runner = CliRunner()
 
 
 def test_distribution_paths_ignores_non_distribution_files(tmp_path: Path) -> None:
@@ -55,6 +60,8 @@ def _write_successful_benchmark_run(path: Path, *, repo_root: Path | None = None
         data["repo_root"] = str(repo_root)
     if repo_head is not None:
         data["repo_head"] = repo_head
+    data.setdefault("worktree_clean", True)
+    data.setdefault("worktree_state", hashlib.sha256(b"").hexdigest())
     path.write_text(
         json.dumps(data) + "\n",
         encoding="utf-8",
@@ -109,13 +116,25 @@ def test_validate_release_benchmark_rejects_failed_thresholds(tmp_path: Path) ->
 
 def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monkeypatch) -> None:
     _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("artifact\n", encoding="utf-8")
     _write_successful_benchmark_run(
         tmp_path / "benchmark-run.json",
         repo_root=tmp_path,
         repo_head="abc123",
     )
+    data = json.loads((tmp_path / "benchmark-run.json").read_text(encoding="utf-8"))
+    data["benchmark_path"] = str(benchmark_path.resolve())
+    data["benchmark_sha256"] = hashlib.sha256(b"artifact\n").hexdigest()
+    (tmp_path / "benchmark-run.json").write_text(json.dumps(data) + "\n", encoding="utf-8")
 
     monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (True, hashlib.sha256(b"").hexdigest()),
+        raising=False,
+    )
     monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
     monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
     monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
@@ -177,9 +196,18 @@ def test_load_release_benchmark_ignores_stale_repo_benchmark_run(
 ) -> None:
     _write_repo_fixture(tmp_path)
     (tmp_path / ".claude").mkdir()
-    _write_successful_benchmark_run(tmp_path / "benchmark-run.json")
     benchmark_path = tmp_path / ".claude" / "benchmark.json"
     benchmark_path.write_text("{}\n", encoding="utf-8")
+    _write_successful_benchmark_run(
+        tmp_path / "benchmark-run.json",
+        repo_root=tmp_path,
+        repo_head="abc123",
+    )
+    data = json.loads((tmp_path / "benchmark-run.json").read_text(encoding="utf-8"))
+    data["benchmark_path"] = str(benchmark_path.resolve())
+    data["benchmark_sha256"] = hashlib.sha256(b"{}\n").hexdigest()
+    (tmp_path / "benchmark-run.json").write_text(json.dumps(data) + "\n", encoding="utf-8")
+    (tmp_path / ".claude" / "mm.db").touch()
 
     expected = BenchmarkRunResult(
         total=1,
@@ -193,12 +221,60 @@ def test_load_release_benchmark_ignores_stale_repo_benchmark_run(
     )
 
     monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (False, "dirty-now"),
+        raising=False,
+    )
+    monkeypatch.setattr("muscle_memory.release_preflight.Store", lambda db_path, embedding_dims: object())
     monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
     monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected)
 
     data = load_release_benchmark(tmp_path)
 
     assert data == asdict(expected)
+
+
+def test_load_release_benchmark_uses_frozen_artifact_without_project_db(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.9,
+                        "adherence_score": 0.95,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda *args, **kwargs: pytest.fail("unexpected recompute"))
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data["total"] == 1
+    assert data["avg_relevance"] == pytest.approx(0.9)
+    assert data["baseline_avg_relevance"] == pytest.approx(0.9)
+    assert data["execution_success_rate"] == pytest.approx(1.0)
+    assert data["thresholds_passed"] is True
 
 
 def test_load_release_benchmark_recompute_ignores_mm_db_env(
@@ -209,6 +285,7 @@ def test_load_release_benchmark_recompute_ignores_mm_db_env(
     (tmp_path / ".claude").mkdir()
     benchmark_path = tmp_path / ".claude" / "benchmark.json"
     benchmark_path.write_text("{}\n", encoding="utf-8")
+    (tmp_path / ".claude" / "mm.db").touch()
 
     external_db = tmp_path / "external.db"
     monkeypatch.setenv("MM_DB_PATH", str(external_db))
@@ -239,3 +316,227 @@ def test_load_release_benchmark_recompute_ignores_mm_db_env(
 
     assert data == asdict(expected)
     assert captured["db_path"] == tmp_path / ".claude" / "mm.db"
+
+
+def test_load_release_benchmark_accepts_mm_eval_run_json_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text("{}\n", encoding="utf-8")
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    benchmark_result = BenchmarkRunResult(
+        total=2,
+        avg_relevance=0.9,
+        avg_adherence=0.95,
+        baseline_avg_relevance=0.88,
+        baseline_avg_adherence=0.93,
+        false_positive_rate=0.0,
+        execution_success_rate=1.0,
+        promotion_precision=1.0,
+        thresholds_passed=True,
+        failed_thresholds=[],
+    )
+
+    with (
+        monkeypatch.context() as cli_patch,
+        monkeypatch.context() as preflight_patch,
+    ):
+        cli_patch.setattr("muscle_memory.cli._load_config", lambda scope=None: config)
+        cli_patch.setattr("muscle_memory.cli._open_store", lambda cfg: object())
+        cli_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
+        cli_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        cli_patch.setattr("muscle_memory.cli._file_sha256", lambda path: "bench-sha")
+        cli_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: object())
+        cli_patch.setattr("muscle_memory.eval.benchmark.run_benchmark", lambda store, path, embedder=None: benchmark_result)
+        result = runner.invoke(app, ["eval", "run", "--benchmark", str(benchmark_path), "--json"])
+
+        assert result.exit_code == 0
+        (tmp_path / "benchmark-run.json").write_text(result.output, encoding="utf-8")
+
+        preflight_patch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+        preflight_patch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        preflight_patch.setattr("muscle_memory.release_preflight._file_sha256", lambda path: "bench-sha")
+        data = load_release_benchmark(tmp_path)
+
+    assert data["repo_root"] == str(tmp_path.resolve())
+    assert data["repo_head"] == "abc123"
+    assert data["thresholds_passed"] is True
+    assert data["benchmark_path"] == str(benchmark_path.resolve())
+    assert data["benchmark_sha256"] == "bench-sha"
+
+
+def test_load_release_benchmark_ignores_dirty_worktree_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.4,
+                        "adherence_score": 0.4,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "thresholds_passed": True,
+                "failed_thresholds": [],
+                "repo_root": str(tmp_path.resolve()),
+                "repo_head": "abc123",
+                "worktree_clean": True,
+                "worktree_state": "clean-state",
+                "benchmark_path": str(benchmark_path.resolve()),
+                "benchmark_sha256": hashlib.sha256(benchmark_path.read_bytes()).hexdigest(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (False, "dirty-state"))
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data["thresholds_passed"] is False
+    assert "avg_relevance" in data["failed_thresholds"]
+
+
+def test_load_release_benchmark_ignores_mismatched_benchmark_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.4,
+                        "adherence_score": 0.4,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other-benchmark.json").write_text("other\n", encoding="utf-8")
+    (tmp_path / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "thresholds_passed": True,
+                "failed_thresholds": [],
+                "repo_root": str(tmp_path.resolve()),
+                "repo_head": "abc123",
+                "worktree_clean": True,
+                "worktree_state": "clean-state",
+                "benchmark_path": str((tmp_path / "other-benchmark.json").resolve()),
+                "benchmark_sha256": hashlib.sha256(b"other\n").hexdigest(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data["thresholds_passed"] is False
+    assert "avg_relevance" in data["failed_thresholds"]
+
+
+def test_load_release_benchmark_ignores_mismatched_benchmark_hash(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.4,
+                        "adherence_score": 0.4,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "thresholds_passed": True,
+                "failed_thresholds": [],
+                "repo_root": str(tmp_path.resolve()),
+                "repo_head": "abc123",
+                "worktree_clean": True,
+                "worktree_state": "clean-state",
+                "benchmark_path": str(benchmark_path.resolve()),
+                "benchmark_sha256": "wrong-sha",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data["thresholds_passed"] is False
+    assert "avg_relevance" in data["failed_thresholds"]
