@@ -114,3 +114,29 @@ def test_doctor_maps_similarity_floor_reject_reason(tmp_path: Path) -> None:
         data["recent_retrieval_decisions"][0]["why"]
         == "semantic match fell below the configured similarity floor"
     )
+
+
+def test_doctor_recommendations_include_debug_and_resume(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    claude_dir = store_dir / ".claude"
+    claude_dir.mkdir()
+    cfg = _make_config(store_dir, debug_enabled=False)
+    Store(cfg.db_path)
+    (claude_dir / "mm.paused").touch()
+
+    with patch("muscle_memory.cli._load_config", return_value=cfg):
+        result = runner.invoke(app, ["doctor", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["recommendations"] == [
+        "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions.",
+        "Run `mm maint resume` before dogfooding if the project is paused.",
+    ]
+
+    with patch("muscle_memory.cli._load_config", return_value=cfg):
+        result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions." in result.output
+    assert "Run `mm maint resume` before dogfooding if the project is paused." in result.output

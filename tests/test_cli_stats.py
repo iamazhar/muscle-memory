@@ -449,6 +449,7 @@ class TestStatsPaused:
 
         assert result.exit_code == 0
         assert "PAUSED" in result.output
+        assert "mm maint resume" in result.output
 
     def test_paused_json(self, store_dir: Path) -> None:
         cfg = _make_config(store_dir)
@@ -731,6 +732,27 @@ class TestAttentionMetrics:
             result = runner.invoke(app, ["stats"])
 
         assert "unknown rate" not in result.output
+
+    def test_next_actions_are_ordered_and_actionable(self, store_dir: Path) -> None:
+        cfg = _make_config(store_dir)
+        store = Store(cfg.db_path)
+        store.add_skill(_make_skill(activation="When pytest import fails", maturity=Maturity.CANDIDATE))
+        store.add_job(BackgroundJob(kind=JobKind.EXTRACT, payload={}, status=JobStatus.FAILED))
+        (store_dir / ".claude" / "mm.paused").touch()
+
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
+        ):
+            result = runner.invoke(app, ["stats", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["attention"]["next_actions"] == [
+            "Run `mm review list` to inspect quarantined candidates.",
+            "Run `mm jobs retry-failed` to retry failed background work.",
+            "Run `mm maint resume` before dogfooding if the project is paused.",
+        ]
 
 
 class TestTopSkillsSelection:

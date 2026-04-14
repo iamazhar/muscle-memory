@@ -668,6 +668,11 @@ def stats(
     jobs = store.list_jobs(limit=None)
     pending_jobs = sum(1 for job in jobs if job.status in {JobStatus.PENDING, JobStatus.RUNNING})
     failed_jobs = sum(1 for job in jobs if job.status is JobStatus.FAILED)
+    next_actions = _attention_recommendations(
+        pending_review=len(pending_review),
+        failed_jobs=failed_jobs,
+        paused=paused,
+    )
     governance = evaluate_governance(store)
     debug_log_path = (
         (cfg.project_root / ".claude" / "mm.debug.log")
@@ -716,6 +721,7 @@ def stats(
                 "debug_log_present": debug_log_present,
                 "retrieval_samples": (retrieval_telemetry or {}).get("samples", 0),
                 "avg_retrieve_ms": (retrieval_telemetry or {}).get("avg_retrieve_ms", 0.0),
+                "next_actions": next_actions,
             },
             "governance": {
                 "demote": governance.demote_skill_ids,
@@ -830,6 +836,12 @@ def stats(
             "  (`mm jobs retry-failed`)"
         )
         attention_items += 1
+    if paused:
+        console.print(
+            "  [yellow]paused[/yellow]        project is paused"
+            "  (`mm maint resume` before dogfooding)"
+        )
+        attention_items += 1
     if governance.demote_skill_ids:
         console.print(
             f"  [red]eval demote[/red]    {len(governance.demote_skill_ids)} skill(s) show poor health"
@@ -909,6 +921,7 @@ def doctor(
     last_debug_event = _read_last_debug_event(debug_log_path)
     retrieval_telemetry = _read_retrieval_telemetry(debug_log_path)
     recent_retrieval_decisions = _read_recent_retrieval_decisions(debug_log_path)
+    recommendations = _doctor_recommendations(debug_enabled=cfg.debug_enabled, paused=paused)
 
     if as_json:
         typer.echo(
@@ -924,6 +937,7 @@ def doctor(
                     "last_debug_event": last_debug_event,
                     "retrieval_telemetry": retrieval_telemetry,
                     "recent_retrieval_decisions": recent_retrieval_decisions,
+                    "recommendations": recommendations,
                 },
                 indent=2,
             )
@@ -955,6 +969,10 @@ def doctor(
         console.print(
             f"[bold]latest decision[/bold] {latest['event']} — {latest['why']}"
         )
+    if recommendations:
+        console.print(Rule("Recommendations"))
+        for recommendation in recommendations:
+            console.print(f"  - {recommendation}")
     if not db_exists:
         console.print("[dim]Database missing. Run [bold]mm init[/bold] first.[/dim]")
 
@@ -1730,6 +1748,28 @@ def _candidate_review_metadata(skill: Skill) -> dict[str, Any]:
         "auto_promote_ready": auto_ready,
         "review_reason": reason,
     }
+
+
+def _attention_recommendations(*, pending_review: int, failed_jobs: int, paused: bool) -> list[str]:
+    recommendations: list[str] = []
+    if pending_review:
+        recommendations.append("Run `mm review list` to inspect quarantined candidates.")
+    if failed_jobs:
+        recommendations.append("Run `mm jobs retry-failed` to retry failed background work.")
+    if paused:
+        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+    return recommendations
+
+
+def _doctor_recommendations(*, debug_enabled: bool, paused: bool) -> list[str]:
+    recommendations: list[str] = []
+    if not debug_enabled:
+        recommendations.append(
+            "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions."
+        )
+    if paused:
+        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+    return recommendations
 
 
 def _read_last_debug_event(path: Path) -> dict[str, Any] | None:
