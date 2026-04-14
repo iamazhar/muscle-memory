@@ -499,6 +499,94 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
     assert data["source_tree_sha256"] == "tree-sha"
 
 
+def test_load_release_benchmark_accepts_custom_repo_local_benchmark_artifact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _FakeEmbedder:
+        def embed_one(self, text: str) -> list[float]:
+            return [1.0, 0.0, 0.0, 0.0]
+
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".git").mkdir()
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    store = Store(config.db_path, embedding_dims=4)
+    skill = Skill(
+        activation="When pytest fails",
+        execution="1. Run `pytest`",
+        termination="Tests pass",
+    )
+    store.add_skill(skill, embedding=[1.0, 0.0, 0.0, 0.0])
+    store.add_episode(
+        Episode(
+            user_prompt="run tests",
+            trajectory=Trajectory(
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")]
+            ),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+        )
+    )
+    custom_benchmark_path = tmp_path / "artifacts" / "custom-benchmark.json"
+    custom_benchmark_path.parent.mkdir()
+
+    with monkeypatch.context() as build_patch:
+        build_patch.setattr("muscle_memory.cli._load_config", lambda scope=None: config)
+        build_patch.setattr("muscle_memory.cli._open_store", lambda cfg: store)
+        build_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: _FakeEmbedder())
+        build_patch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
+        build_patch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        build_patch.setattr(
+            "muscle_memory.eval.benchmark._current_source_tree_sha256",
+            lambda repo_root, excluded_paths=None: "tree-sha",
+        )
+        build_result = runner.invoke(
+            app,
+            ["eval", "build", "--output", str(custom_benchmark_path)],
+        )
+
+    assert build_result.exit_code == 0
+
+    with monkeypatch.context() as run_patch:
+        run_patch.setattr("muscle_memory.cli._load_config", lambda scope=None: config)
+        run_patch.setattr("muscle_memory.cli._open_store", lambda cfg: store)
+        run_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: _FakeEmbedder())
+        run_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
+        run_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        run_patch.setattr("muscle_memory.cli._current_source_tree_sha256", lambda repo_root: "tree-sha")
+        run_result = runner.invoke(
+            app,
+            ["eval", "run", "--benchmark", str(custom_benchmark_path), "--json"],
+        )
+
+    assert run_result.exit_code == 0
+    (tmp_path / "benchmark-run.json").write_text(run_result.output, encoding="utf-8")
+
+    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root: "tree-sha",
+    )
+
+    cached = load_release_benchmark(tmp_path)
+
+    assert cached["thresholds_passed"] is True
+    assert cached["benchmark_path"] == str(custom_benchmark_path.resolve())
+
+    config.db_path.unlink()
+    artifact = load_release_benchmark(tmp_path)
+
+    assert artifact["thresholds_passed"] is True
+    assert artifact["total"] == 1
+    assert not (tmp_path / ".claude" / "benchmark.json").exists()
+
+
 def test_load_release_benchmark_ignores_stale_db_identity(
     tmp_path: Path,
     monkeypatch,

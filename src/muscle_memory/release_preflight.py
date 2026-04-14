@@ -76,6 +76,17 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _repo_local_benchmark_path(path_value: object, repo_root: Path) -> Path | None:
+    if not isinstance(path_value, str):
+        return None
+    candidate = Path(path_value).expanduser().resolve()
+    try:
+        candidate.relative_to(repo_root.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
 def _benchmark_run_matches_repo(
     data: dict[str, object],
     repo_root: Path,
@@ -142,10 +153,17 @@ def _project_release_config(repo_root: Path) -> Config:
     return cfg
 
 
-def _benchmark_artifact_matches_repo(data: dict[str, object], repo_root: Path) -> bool:
+def _benchmark_artifact_matches_repo(
+    data: dict[str, object],
+    repo_root: Path,
+    benchmark_path: Path,
+) -> bool:
     repo_head = data.get("repo_head")
     source_tree_sha256 = data.get("source_tree_sha256")
-    current_source_tree_sha256 = _current_source_tree_sha256(repo_root)
+    current_source_tree_sha256 = _current_source_tree_sha256(
+        repo_root,
+        excluded_paths=[benchmark_path],
+    )
     current_repo_head = _current_repo_head(repo_root)
     if (
         not isinstance(repo_head, str)
@@ -159,12 +177,17 @@ def _benchmark_artifact_matches_repo(data: dict[str, object], repo_root: Path) -
 
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     cfg = _project_release_config(repo_root)
-    benchmark_path = cfg.db_path.parent / "benchmark.json"
+    default_benchmark_path = cfg.db_path.parent / "benchmark.json"
+    benchmark_path = default_benchmark_path
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
         data = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
-        if _benchmark_run_matches_repo(data, repo_root, benchmark_path, cfg.db_path):
+        cached_benchmark_path = _repo_local_benchmark_path(data.get("benchmark_path"), repo_root)
+        cache_benchmark_path = cached_benchmark_path or default_benchmark_path
+        if _benchmark_run_matches_repo(data, repo_root, cache_benchmark_path, cfg.db_path):
             return data
+        if cached_benchmark_path is not None:
+            benchmark_path = cached_benchmark_path
 
     if not benchmark_path.exists():
         raise ValueError(
@@ -175,7 +198,7 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
 
     raw_benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
     if not cfg.db_path.exists():
-        if not _benchmark_artifact_matches_repo(raw_benchmark, repo_root):
+        if not _benchmark_artifact_matches_repo(raw_benchmark, repo_root, benchmark_path):
             raise ValueError(
                 f"benchmark artifact {benchmark_path} does not match the current source state"
             )
