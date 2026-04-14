@@ -127,7 +127,12 @@ def _run_claude(
     pass `stream=True` to get the full event stream via
     `--output-format stream-json --verbose`.
     """
-    args = ["claude", "--dangerously-skip-permissions"]
+    args = [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--setting-sources",
+        "project",
+    ]
     if stream:
         args.extend(["--output-format", "stream-json", "--verbose"])
     args.extend(["-p", prompt])

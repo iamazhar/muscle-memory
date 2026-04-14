@@ -42,6 +42,14 @@ in the rest of the repo:
 CLAUDE_TESTS=1 .venv/bin/python -m pytest tests/test_behavioral.py -v
 ```
 
+## Behavioral isolation
+
+`tests/test_behavioral.py` runs Claude with `--setting-sources project` so
+user- and global-level Claude settings do not leak into the stream. That keeps
+the behavioral subprocess hermetic while still allowing project-local
+`.claude/settings.json` hooks to run. When reproducing the behavioral suite
+manually, use the same flag.
+
 ## The `claude -p` final-text-only gotcha
 
 **You cannot verify the `🧠 muscle-memory:` marker by scanning `claude -p` stdout when the response involves tool calls.**
