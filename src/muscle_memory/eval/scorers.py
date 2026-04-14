@@ -17,6 +17,7 @@ from pathlib import Path
 from muscle_memory.db import Store
 from muscle_memory.embeddings import Embedder
 from muscle_memory.models import Episode, Outcome, Skill, Trajectory
+from muscle_memory.prompt_cleaning import first_meaningful_prompt
 
 # ------------------------------------------------------------------
 # Relevance: embedding similarity between prompt and skill activation
@@ -52,7 +53,9 @@ def score_relevance(
 
     # Recompute from stored embeddings
     skill_emb = store.get_skill_embedding(skill_id)
-    if skill_emb is None or not episode.user_prompt:
+    prompt_text = first_meaningful_prompt(episode.user_prompt, episode.trajectory.user_followup)
+
+    if skill_emb is None or not prompt_text:
         return RelevanceScore(score=0.0, l2_distance=2.0, method="recomputed")
 
     if embedder is None:
@@ -60,7 +63,7 @@ def score_relevance(
         return RelevanceScore(score=0.0, l2_distance=2.0, method="recomputed")
 
     # Embed the user prompt and compute L2 distance
-    prompt_emb = embedder.embed_one(episode.user_prompt)
+    prompt_emb = embedder.embed_one(prompt_text)
     distance = _l2_distance(prompt_emb, skill_emb)
     return RelevanceScore(
         score=_l2_to_similarity(distance),

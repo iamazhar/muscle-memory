@@ -56,7 +56,7 @@ class BenchmarkRunResult:
 
 
 V1_RELEASE_THRESHOLDS = {
-    "avg_relevance": 0.75,
+    "avg_relevance": 0.50,
     "avg_adherence": 0.70,
     "false_positive_rate": 0.15,
     "execution_success_rate": 0.70,

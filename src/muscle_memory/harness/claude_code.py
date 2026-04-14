@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from muscle_memory.harness.base import InstallReport
 from muscle_memory.models import Scope, ToolCall, Trajectory
+from muscle_memory.prompt_cleaning import clean_prompt_text
 
 if TYPE_CHECKING:
     from muscle_memory.config import Config
@@ -205,10 +206,12 @@ class ClaudeCodeHarness:
                 if rec_type == "user":
                     content = msg.get("content")
                     if isinstance(content, str):
-                        if not user_prompt:
-                            user_prompt = content
-                        else:
-                            user_followups.append(content)
+                        text = clean_prompt_text(content)
+                        if text:
+                            if not user_prompt:
+                                user_prompt = text
+                            else:
+                                user_followups.append(text)
                     elif isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict):
@@ -224,11 +227,12 @@ class ClaudeCodeHarness:
                                         else:
                                             tc.result = result_text
                                 elif block.get("type") == "text":
-                                    text = block.get("text", "")
-                                    if not user_prompt:
-                                        user_prompt = text
-                                    else:
-                                        user_followups.append(text)
+                                    text = clean_prompt_text(block.get("text", ""))
+                                    if text:
+                                        if not user_prompt:
+                                            user_prompt = text
+                                        else:
+                                            user_followups.append(text)
 
                 elif rec_type == "assistant":
                     content = msg.get("content")
