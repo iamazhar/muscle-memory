@@ -754,6 +754,18 @@ class TestAttentionMetrics:
             "Run `mm maint resume` before dogfooding if the project is paused.",
         ]
 
+        with (
+            patch("muscle_memory.cli._load_config", return_value=cfg),
+            patch("muscle_memory.cli._open_store", return_value=store),
+        ):
+            rich_result = runner.invoke(app, ["stats"])
+
+        assert rich_result.exit_code == 0
+        assert "next actions" in rich_result.output.lower()
+        assert "mm review list" in rich_result.output
+        assert "mm jobs retry-failed" in rich_result.output
+        assert "mm maint resume" in rich_result.output
+
 
 class TestTopSkillsSelection:
     def test_requires_min_2_invocations(self, store_dir: Path) -> None:

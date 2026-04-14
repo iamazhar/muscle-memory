@@ -854,6 +854,10 @@ def stats(
         attention_items += 1
     if attention_items == 0:
         console.print("  [green]No issues detected.[/green]")
+    elif next_actions:
+        console.print("  [bold]next actions[/bold]")
+        for action in next_actions:
+            console.print(f"    - {action}")
 
     # Section 5: Top skills
     if top_skills:
