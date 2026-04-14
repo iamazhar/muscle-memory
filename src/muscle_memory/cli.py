@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -1525,6 +1526,7 @@ def eval_build(
 @eval_app.command("run")
 def eval_run(
     benchmark: str = typer.Option(None, "--benchmark", "-b", help="Path to benchmark JSON."),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
     """Re-score against a frozen benchmark and show diffs."""
     from pathlib import Path as _Path
@@ -1540,7 +1542,11 @@ def eval_run(
         console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
         return
 
-    result = run_benchmark(store, path)
+    result = run_benchmark(store, path, embedder=make_embedder(cfg.embedding_dims))
+
+    if as_json:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        raise typer.Exit(0 if result.thresholds_passed else 1)
 
     console.print(f"[bold]Benchmark Run[/bold] ({result.total} entries)\n")
     console.print(
@@ -1564,6 +1570,14 @@ def eval_run(
             console.print(f"    {d['skill_id']}  {d['activation']}")
     if not result.improved and not result.degraded:
         console.print("\n  [dim]No significant changes.[/dim]")
+    console.print(
+        f"\n  [bold]Release gate:[/bold] "
+        f"{'[green]passed[/green]' if result.thresholds_passed else '[red]failed[/red]'}"
+    )
+    if result.failed_thresholds:
+        console.print(f"  [red]Failed thresholds:[/red] {', '.join(result.failed_thresholds)}")
+
+    raise typer.Exit(0 if result.thresholds_passed else 1)
 
 
 @eval_app.command("report")

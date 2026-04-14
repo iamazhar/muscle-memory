@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -15,6 +16,13 @@ from muscle_memory.release_artifacts import (
     write_release_checksums,
 )
 from muscle_memory.release_notes import extract_release_notes
+
+
+def validate_release_benchmark(path: Path) -> None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not data.get("thresholds_passed"):
+        failed = ", ".join(data.get("failed_thresholds", [])) or "unknown"
+        raise ValueError(f"benchmark thresholds failed: {failed}")
 
 
 def validate_release_metadata(version: str, repo_root: Path) -> None:
@@ -51,6 +59,7 @@ def distribution_paths(version: str, dist_dir: Path) -> list[Path]:
 
 def run_release_preflight(version: str, repo_root: Path) -> None:
     validate_release_metadata(version, repo_root)
+    validate_release_benchmark(repo_root / "benchmark-run.json")
     changelog = (repo_root / "CHANGELOG.md").read_text(encoding="utf-8")
     extract_release_notes(version, changelog)
 

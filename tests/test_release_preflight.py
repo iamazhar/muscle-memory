@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from muscle_memory.release_preflight import distribution_paths, validate_release_metadata
+from muscle_memory.release_preflight import (
+    distribution_paths,
+    validate_release_benchmark,
+    validate_release_metadata,
+)
 
 
 def test_distribution_paths_ignores_non_distribution_files(tmp_path: Path) -> None:
@@ -54,3 +58,21 @@ def test_validate_release_metadata_requires_matching_changelog_section(tmp_path:
 
     with pytest.raises(ValueError, match=r"CHANGELOG.md is missing a ## \[0.8.0\] section"):
         validate_release_metadata("0.8.0", tmp_path)
+
+
+def test_validate_release_benchmark_rejects_failed_thresholds(tmp_path: Path) -> None:
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        """
+        {
+          "version": 1,
+          "thresholds_passed": false,
+          "entries": []
+        }
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="benchmark thresholds failed"):
+        validate_release_benchmark(benchmark)

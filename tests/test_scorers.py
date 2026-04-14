@@ -245,3 +245,22 @@ class TestBenchmark:
         assert result.total == 1
         assert not result.improved
         assert not result.degraded
+
+    def test_run_result_reports_release_gate_status(self):
+        from muscle_memory.eval.benchmark import BenchmarkRunResult
+
+        result = BenchmarkRunResult(
+            total=4,
+            avg_relevance=0.82,
+            avg_adherence=0.79,
+            baseline_avg_relevance=0.80,
+            baseline_avg_adherence=0.78,
+            false_positive_rate=0.10,
+            execution_success_rate=0.75,
+            promotion_precision=0.85,
+            thresholds_passed=True,
+            failed_thresholds=[],
+        )
+
+        assert result.thresholds_passed is True
+        assert result.failed_thresholds == []

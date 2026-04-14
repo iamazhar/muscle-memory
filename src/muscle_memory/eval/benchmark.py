@@ -43,8 +43,22 @@ class BenchmarkRunResult:
     avg_adherence: float = 0.0
     baseline_avg_relevance: float = 0.0
     baseline_avg_adherence: float = 0.0
+    false_positive_rate: float = 0.0
+    execution_success_rate: float = 0.0
+    promotion_precision: float = 0.0
+    thresholds_passed: bool = False
+    failed_thresholds: list[str] = field(default_factory=list)
     improved: list[dict[str, str]] = field(default_factory=list)
     degraded: list[dict[str, str]] = field(default_factory=list)
+
+
+V1_RELEASE_THRESHOLDS = {
+    "avg_relevance": 0.75,
+    "avg_adherence": 0.70,
+    "false_positive_rate": 0.15,
+    "execution_success_rate": 0.70,
+    "promotion_precision": 0.80,
+}
 
 
 def build_benchmark(
@@ -148,6 +162,9 @@ def run_benchmark(
     new_adherences: list[float] = []
     baseline_relevances: list[float] = []
     baseline_adherences: list[float] = []
+    correct_count = 0
+    incorrect_count = 0
+    execution_success_count = 0
 
     for entry in baseline_entries:
         ep = store.get_episode(entry.episode_id)
@@ -158,11 +175,18 @@ def run_benchmark(
         # Re-score with current code/data
         rel = score_relevance(store, ep, entry.skill_id, embedder=embedder)
         adh = score_adherence(skill, ep.trajectory)
+        cor = score_correctness(adh, ep.outcome)
 
         new_relevances.append(rel.score)
         new_adherences.append(adh.score)
         baseline_relevances.append(entry.relevance_score)
         baseline_adherences.append(entry.adherence_score)
+        if adh.score >= 0.5:
+            execution_success_count += 1
+        if cor.verdict == "correct":
+            correct_count += 1
+        elif cor.verdict == "incorrect":
+            incorrect_count += 1
 
         rel_delta = rel.score - entry.relevance_score
         adh_delta = adh.score - entry.adherence_score
@@ -186,13 +210,60 @@ def run_benchmark(
                 }
             )
 
-    n = len(new_relevances) or 1
+    total = len(new_relevances)
+    avg_relevance = sum(new_relevances) / total if total else 0.0
+    avg_adherence = sum(new_adherences) / total if total else 0.0
+    baseline_avg_relevance = sum(baseline_relevances) / total if total else 0.0
+    baseline_avg_adherence = sum(baseline_adherences) / total if total else 0.0
+    promotion_total = correct_count + incorrect_count
+    false_positive_rate = incorrect_count / total if total else 0.0
+    execution_success_rate = execution_success_count / total if total else 0.0
+    promotion_precision = correct_count / promotion_total if promotion_total else 0.0
+    failed_thresholds = _failed_v1_thresholds(
+        avg_relevance=avg_relevance,
+        avg_adherence=avg_adherence,
+        false_positive_rate=false_positive_rate,
+        execution_success_rate=execution_success_rate,
+        promotion_precision=promotion_precision,
+        total=total,
+    )
     return BenchmarkRunResult(
-        total=n,
-        avg_relevance=sum(new_relevances) / n,
-        avg_adherence=sum(new_adherences) / n,
-        baseline_avg_relevance=sum(baseline_relevances) / n,
-        baseline_avg_adherence=sum(baseline_adherences) / n,
+        total=total,
+        avg_relevance=avg_relevance,
+        avg_adherence=avg_adherence,
+        baseline_avg_relevance=baseline_avg_relevance,
+        baseline_avg_adherence=baseline_avg_adherence,
+        false_positive_rate=false_positive_rate,
+        execution_success_rate=execution_success_rate,
+        promotion_precision=promotion_precision,
+        thresholds_passed=not failed_thresholds,
+        failed_thresholds=failed_thresholds,
         improved=improved,
         degraded=degraded,
     )
+
+
+def _failed_v1_thresholds(
+    *,
+    avg_relevance: float,
+    avg_adherence: float,
+    false_positive_rate: float,
+    execution_success_rate: float,
+    promotion_precision: float,
+    total: int,
+) -> list[str]:
+    failed: list[str] = []
+    if total == 0:
+        failed.append("no_entries")
+        return failed
+    if avg_relevance < V1_RELEASE_THRESHOLDS["avg_relevance"]:
+        failed.append("avg_relevance")
+    if avg_adherence < V1_RELEASE_THRESHOLDS["avg_adherence"]:
+        failed.append("avg_adherence")
+    if false_positive_rate > V1_RELEASE_THRESHOLDS["false_positive_rate"]:
+        failed.append("false_positive_rate")
+    if execution_success_rate < V1_RELEASE_THRESHOLDS["execution_success_rate"]:
+        failed.append("execution_success_rate")
+    if promotion_precision < V1_RELEASE_THRESHOLDS["promotion_precision"]:
+        failed.append("promotion_precision")
+    return failed
