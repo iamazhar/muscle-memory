@@ -6,6 +6,7 @@
    `.venv/bin/python -m pytest tests/ -v`
 2. Run the behavioral proof on the Claude Code-first surface:
    `CLAUDE_TESTS=1 .venv/bin/python -m pytest tests/test_behavioral.py -v`
+   Manual reproductions should use the same project-scoped Claude settings isolation as the suite.
 3. Verify the release preflight for the target version:
    `uv run python scripts/release_preflight.py <version>`
 4. Run the benchmark gate and confirm it reports `"thresholds_passed": true`:
