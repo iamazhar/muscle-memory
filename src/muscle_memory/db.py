@@ -31,7 +31,7 @@ from muscle_memory.models import (
 if TYPE_CHECKING:
     from muscle_memory.eval import EvalLabel
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _l2_distance(a: list[float], b: list[float]) -> float:
@@ -174,6 +174,9 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_single_active_refine
+                    ON jobs(kind)
+                    WHERE kind = 'refine' AND status IN ('pending', 'running');
                 """
             )
 
@@ -282,6 +285,15 @@ class Store:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)")
+
+        if current_version < 6:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_single_active_refine
+                    ON jobs(kind)
+                    WHERE kind = 'refine' AND status IN ('pending', 'running')
+                """
+            )
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 

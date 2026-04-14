@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -144,7 +145,12 @@ def main(argv: list[str] | None = None) -> int:
             store, JobKind.REFINE
         ):
             refine_job = BackgroundJob(kind=JobKind.REFINE, payload={})
-            store.add_job(refine_job)
+            try:
+                store.add_job(refine_job)
+            except sqlite3.IntegrityError:
+                refine_job = None
+            if refine_job is None:
+                return 0
             _fire_async_refinement(cfg.db_path, job_id=refine_job.id)
             log_debug_event(
                 cfg,
