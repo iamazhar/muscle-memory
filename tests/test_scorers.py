@@ -206,7 +206,7 @@ class TestBenchmark:
         from muscle_memory.eval.benchmark import build_benchmark
 
         # Add a skill and episode
-        skill = _make_skill()
+        skill = _make_skill(execution="1. Run `pytest`")
         store.add_skill(skill)
         ep = Episode(
             user_prompt="run tests",
@@ -229,7 +229,7 @@ class TestBenchmark:
     def test_run_detects_no_drift(self, store, tmp_path):
         from muscle_memory.eval.benchmark import build_benchmark, run_benchmark
 
-        skill = _make_skill()
+        skill = _make_skill(execution="1. Run `pytest`")
         store.add_skill(skill)
         ep = Episode(
             user_prompt="run tests",
@@ -246,21 +246,30 @@ class TestBenchmark:
         assert not result.improved
         assert not result.degraded
 
-    def test_run_result_reports_release_gate_status(self):
-        from muscle_memory.eval.benchmark import BenchmarkRunResult
+    def test_run_reports_release_gate_status_from_benchmark_path(self, store, tmp_path):
+        from muscle_memory.eval.benchmark import build_benchmark, run_benchmark
 
-        result = BenchmarkRunResult(
-            total=4,
-            avg_relevance=0.82,
-            avg_adherence=0.79,
-            baseline_avg_relevance=0.80,
-            baseline_avg_adherence=0.78,
-            false_positive_rate=0.10,
-            execution_success_rate=0.75,
-            promotion_precision=0.85,
-            thresholds_passed=True,
-            failed_thresholds=[],
+        class _FakeEmbedder:
+            def embed_one(self, text: str) -> list[float]:
+                return [1.0, 0.0, 0.0, 0.0]
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill, embedding=[1.0, 0.0, 0.0, 0.0])
+        ep = Episode(
+            user_prompt="run tests",
+            trajectory=_make_trajectory([("pytest", "5 passed in 1.2s")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
         )
+        store.add_episode(ep)
 
+        _, path = build_benchmark(store, output_path=tmp_path / "bench.json")
+        result = run_benchmark(store, path, embedder=_FakeEmbedder())
+
+        assert result.total == 1
+        assert result.avg_relevance == pytest.approx(1.0)
+        assert result.avg_adherence == pytest.approx(1.0)
+        assert result.execution_success_rate == pytest.approx(1.0)
+        assert result.promotion_precision == pytest.approx(1.0)
         assert result.thresholds_passed is True
         assert result.failed_thresholds == []
