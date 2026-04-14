@@ -138,7 +138,10 @@ def build_benchmark(
         "total_entries": len(entries),
         "entries": [asdict(e) for e in entries],
         "repo_head": _current_repo_head(repo_root),
-        "source_tree_sha256": _current_source_tree_sha256(repo_root),
+        "source_tree_sha256": _current_source_tree_sha256(
+            repo_root,
+            excluded_paths=[output_path],
+        ),
     }
     output_path.write_text(json.dumps(data, indent=2) + "\n")
 
@@ -199,7 +202,11 @@ def _current_repo_head(repo_root: Path | None) -> str | None:
     return result.stdout.strip() or None
 
 
-def _current_source_tree_sha256(repo_root: Path | None) -> str | None:
+def _current_source_tree_sha256(
+    repo_root: Path | None,
+    *,
+    excluded_paths: list[Path] | tuple[Path, ...] | None = None,
+) -> str | None:
     if repo_root is None:
         return None
     try:
@@ -223,6 +230,13 @@ def _current_source_tree_sha256(repo_root: Path | None) -> str | None:
         ".claude/mm.db",
         "benchmark-run.json",
     }
+    repo_root_resolved = repo_root.resolve()
+    for path in excluded_paths or ():
+        try:
+            rel_path = path.resolve().relative_to(repo_root_resolved).as_posix()
+        except ValueError:
+            continue
+        excluded.add(rel_path)
     excluded_prefixes = (
         ".claude/mm.activations/",
         ".git/",

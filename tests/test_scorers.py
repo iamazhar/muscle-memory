@@ -251,7 +251,7 @@ class TestBenchmark:
         monkeypatch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
         monkeypatch.setattr(
             "muscle_memory.eval.benchmark._current_source_tree_sha256",
-            lambda repo_root: "tree-sha",
+            lambda repo_root, excluded_paths=None: "tree-sha",
         )
 
         _, path = build_benchmark(store, output_path=tmp_path / "bench.json")
@@ -259,6 +259,50 @@ class TestBenchmark:
 
         assert data["repo_head"] == "abc123"
         assert data["source_tree_sha256"] == "tree-sha"
+
+    def test_build_with_custom_repo_local_output_does_not_invalidate_own_provenance(
+        self, store, tmp_path, monkeypatch
+    ):
+        import muscle_memory.eval.benchmark as benchmark_module
+
+        from muscle_memory.eval.benchmark import build_benchmark
+
+        skill = _make_skill(execution="1. Run `pytest`")
+        store.add_skill(skill)
+        episode = Episode(
+            user_prompt="run tests",
+            trajectory=_make_trajectory([("pytest", "5 passed in 1.2s")]),
+            outcome=Outcome.SUCCESS,
+            activated_skills=[skill.id],
+        )
+        store.add_episode(episode)
+
+        tracked = tmp_path / "tracked.py"
+        tracked.write_text("print('tracked')\n", encoding="utf-8")
+        output_path = tmp_path / "artifacts" / "custom-benchmark.json"
+        output_path.parent.mkdir()
+        rel_output = output_path.relative_to(tmp_path).as_posix().encode("utf-8") + b"\0"
+
+        class _Result:
+            def __init__(self, stdout: bytes) -> None:
+                self.stdout = stdout
+
+        def _fake_run(command, **kwargs):
+            if "--others" in command:
+                return _Result(rel_output)
+            return _Result(b"tracked.py\0")
+
+        monkeypatch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
+        monkeypatch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        monkeypatch.setattr(benchmark_module.subprocess, "run", _fake_run)
+
+        _, first_path = build_benchmark(store, output_path=output_path)
+        first_hash = json.loads(first_path.read_text(encoding="utf-8"))["source_tree_sha256"]
+
+        _, second_path = build_benchmark(store, output_path=output_path)
+        second_hash = json.loads(second_path.read_text(encoding="utf-8"))["source_tree_sha256"]
+
+        assert first_hash == second_hash
 
     def test_build_keeps_latest_episode_per_session(self, store, tmp_path):
         from muscle_memory.eval.benchmark import build_benchmark
