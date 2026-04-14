@@ -418,3 +418,65 @@ def test_eval_run_json_reports_payload_and_exit_code(
     }
     assert captured["config"] is config
     mock_run.assert_called_once_with(fake_store, benchmark_path, embedder=fake_embedder)
+
+
+def test_eval_run_exits_nonzero_when_benchmark_is_missing(tmp_path) -> None:
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    missing_path = tmp_path / "missing-benchmark.json"
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=config),
+        patch("muscle_memory.cli._open_store", return_value=object()),
+        patch("muscle_memory.eval.benchmark.run_benchmark") as mock_run,
+    ):
+        result = runner.invoke(
+            app,
+            ["eval", "run", "--benchmark", str(missing_path)],
+        )
+
+    assert result.exit_code == 1
+    normalized = " ".join(result.output.split())
+    assert "No benchmark at" in normalized
+    assert missing_path.name in normalized
+    assert "Run mm eval build first." in normalized
+    mock_run.assert_not_called()
+
+
+def test_eval_build_uses_embedder_for_benchmark_generation(tmp_path) -> None:
+    benchmark_path = tmp_path / "benchmark.json"
+    config = Config(
+        db_path=tmp_path / ".claude" / "mm.db",
+        scope=Scope.PROJECT,
+        project_root=tmp_path,
+        embedding_dims=4,
+    )
+    fake_store = object()
+    fake_embedder = object()
+    captured: dict[str, object] = {}
+
+    def _fake_make_embedder(cfg: Config) -> object:
+        captured["config"] = cfg
+        return fake_embedder
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=config),
+        patch("muscle_memory.cli._open_store", return_value=fake_store),
+        patch("muscle_memory.cli.make_embedder", side_effect=_fake_make_embedder),
+        patch(
+            "muscle_memory.eval.benchmark.build_benchmark",
+            return_value=([], benchmark_path),
+        ) as mock_build,
+    ):
+        result = runner.invoke(
+            app,
+            ["eval", "build", "--output", str(benchmark_path)],
+        )
+
+    assert result.exit_code == 0
+    assert captured["config"] is config
+    mock_build.assert_called_once_with(fake_store, embedder=fake_embedder, output_path=benchmark_path)

@@ -1519,7 +1519,7 @@ def eval_build(
     cfg = _load_config()
     store = _open_store(cfg)
     out = _Path(output) if output else None
-    entries, path = build_benchmark(store, output_path=out)
+    entries, path = build_benchmark(store, embedder=make_embedder(cfg), output_path=out)
     console.print(f"[green]Built benchmark:[/green] {len(entries)} entries -> {path}")
 
 
@@ -1540,7 +1540,7 @@ def eval_run(
 
     if not path.exists():
         console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
-        return
+        raise typer.Exit(1)
 
     result = run_benchmark(store, path, embedder=make_embedder(cfg))
 
