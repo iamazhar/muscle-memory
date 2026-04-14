@@ -93,6 +93,7 @@ def _seed_skill(project: Path, skill_json: dict) -> str:
 
     Returns the skill id.
     """
+    skill_json = {"maturity": "live", **skill_json}
     import_path = project / "seed.json"
     import_path.write_text(json.dumps([skill_json]))
     result = subprocess.run(
@@ -454,7 +455,7 @@ class TestHookWiringEndToEnd:
                 "successes": 0,
                 "invocations": 0,
                 "failures": 0,
-                "maturity": "candidate",
+                "maturity": "live",
                 "source_episode_ids": [],
                 "score": 0.0,
                 "created_at": "2026-04-07T22:00:00+00:00",

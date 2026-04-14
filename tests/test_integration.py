@@ -263,6 +263,33 @@ class TestUserPromptHook:
         if "<muscle_memory>" in out:
             assert "muscle-memory" in out.lower()
 
+    def test_candidate_only_skill_does_not_inject_context(self, project_dir: Path) -> None:
+        store = Store(project_dir / ".claude" / "mm.db", embedding_dims=16)
+        skill = Skill(
+            activation="When the user is trying to debug a hidden .pth file problem on mac",
+            execution="1. Run `ls -lO`\n2. Run `chflags nohidden`\n3. Verify with python3 import",
+            termination="import succeeds",
+            tags=["macos", "test-seed"],
+            maturity=Maturity.CANDIDATE,
+        )
+        store.add_skill(skill, embedding=DeterministicEmbedder().embed_one(skill.activation))
+
+        with patch(
+            "muscle_memory.hooks.user_prompt.make_embedder",
+            return_value=DeterministicEmbedder(),
+        ):
+            rc, out = self._run_hook_with_stdin(
+                {
+                    "session_id": "test-sess-candidate-only",
+                    "cwd": str(project_dir),
+                    "prompt": "debug hidden pth file on mac help",
+                },
+                store.db_path,
+            )
+
+        assert rc == 0
+        assert out == ""
+
     def test_shell_escape_prompt_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         """Bang commands / bare shell commands should not trigger retrieval."""
         with patch(
