@@ -1830,6 +1830,8 @@ def _read_recent_retrieval_decisions(path: Path, *, limit: int = 5) -> list[dict
             reject_reason = str(data.get("reject_reason") or "")
             if reject_reason == "weak_match_without_lexical_support":
                 why = "weak semantic hit without lexical corroboration"
+            elif reject_reason == "distance_below_similarity_floor":
+                why = "semantic match fell below the configured similarity floor"
             elif reject_reason == "distance_above_weak_match_window":
                 why = "semantic match fell outside the weak-match window"
             elif reject_reason == "no lexical overlap with trusted skills" or data.get(

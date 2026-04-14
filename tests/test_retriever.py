@@ -160,11 +160,15 @@ def test_retriever_keeps_strong_matches_without_lexical_overlap(
 
     retriever = Retriever(tmp_db, embedder, sample_config)
     with patch.object(
+        retriever,
+        "_passes_lexical_prefilter",
+        return_value=True,
+    ), patch.object(
         tmp_db,
         "search_skills_by_embedding",
         return_value=[(skill, 0.5)],
     ):
-        hits = retriever.retrieve("please help deploy something else")
+        hits = retriever.retrieve("mysterious canary rollout procedure")
 
     assert hits
     assert hits[0].skill.id == skill.id
@@ -193,6 +197,31 @@ def test_retriever_rejects_borderline_weak_match_without_lexical_support(
 
     assert hits == []
     assert retriever.last_diagnostics.reject_reason == "weak_match_without_lexical_support"
+
+
+def test_retriever_uses_distinct_reason_when_below_similarity_floor(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    sample_config.retrieval_similarity_floor = 0.7
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="alpha beta gamma",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.8)],
+    ):
+        hits = retriever.retrieve("alpha beta support")
+
+    assert hits == []
+    assert retriever.last_diagnostics.reject_reason == "distance_below_similarity_floor"
 
 
 def test_retriever_does_not_activate_quarantined_candidate(

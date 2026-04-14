@@ -235,7 +235,7 @@ class Retriever:
         filtered_results: list[RetrievedSkill] = []
         for result in results:
             if result.final_rank > floor_threshold:
-                self._record_reject_reason("distance_above_weak_match_window")
+                self._record_reject_reason("distance_below_similarity_floor")
                 continue
             passed, reason = _passes_relevance_gate(query_tokens, result)
             if not passed:
