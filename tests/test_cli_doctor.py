@@ -48,7 +48,7 @@ def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     log_path = claude_dir / "mm.debug.log"
     log_path.write_text(
         '{"event":"spawned_extraction","component":"stop"}\n'
-        '{"event":"no_hits","component":"user_prompt","session_id":"sess-a","prompt_excerpt":"capital of france","lexical_prefilter_skipped":true,"retrieve_ms":0.2,"total_ms":0.2}\n'
+        '{"event":"no_hits","component":"user_prompt","session_id":"sess-a","prompt_excerpt":"capital of france","lexical_prefilter_skipped":false,"reject_reason":"weak_match_without_lexical_support","retrieve_ms":0.2,"total_ms":0.2}\n'
         '{"event":"hits_returned","component":"user_prompt","session_id":"sess-b","prompt_excerpt":"debug pth","retrieve_ms":12.5,"embed_ms":4.0,"search_ms":1.0,"rerank_ms":0.5,"total_ms":13.0,"hit_count":1}\n',
         encoding="utf-8",
     )
@@ -68,4 +68,4 @@ def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     assert data["retrieval_telemetry"]["avg_total_ms"] == 6.6
     assert len(data["recent_retrieval_decisions"]) == 2
     assert data["recent_retrieval_decisions"][0]["event"] == "hits_returned"
-    assert data["recent_retrieval_decisions"][1]["why"] == "no lexical overlap with trusted skills"
+    assert data["recent_retrieval_decisions"][1]["why"] == "no trusted skills passed retrieval filters"

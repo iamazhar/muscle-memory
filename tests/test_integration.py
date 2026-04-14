@@ -414,6 +414,50 @@ class TestUserPromptHook:
         assert "activation_record_ms" in timed[-1]
         assert "total_ms" in timed[-1]
 
+    def test_no_hit_debug_log_includes_reject_reason(
+        self, seeded_store: Store, project_dir: Path
+    ) -> None:
+        timed_cfg = Config(
+            db_path=seeded_store.db_path,
+            scope=Scope.PROJECT,
+            project_root=project_dir,
+            embedding_dims=16,
+            debug_enabled=True,
+        )
+        skill = seeded_store.list_skills()[0]
+        with (
+            patch("muscle_memory.hooks.user_prompt.Config.load", return_value=timed_cfg),
+            patch(
+                "muscle_memory.hooks.user_prompt.make_embedder",
+                return_value=DeterministicEmbedder(),
+            ),
+            patch.object(
+                Store,
+                "search_skills_by_embedding",
+                return_value=[(skill, 0.9)],
+            ),
+        ):
+            rc, out = self._run_hook_with_stdin(
+                {
+                    "session_id": "reject-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "hidden gopher question",
+                },
+                seeded_store.db_path,
+            )
+
+        assert rc == 0
+        assert out == ""
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        no_hits = [
+            e
+            for e in entries
+            if e.get("event") == "no_hits" and e.get("session_id") == "reject-sess"
+        ]
+        assert no_hits
+        assert no_hits[-1]["reject_reason"] == "weak_match_without_lexical_support"
+
     def test_formatted_context_includes_visibility_protocol(self) -> None:
         """The injection must tell Claude to emit the 🧠 marker."""
         skill = Skill(

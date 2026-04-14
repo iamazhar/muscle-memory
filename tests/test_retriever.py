@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from unittest.mock import patch
 
 from muscle_memory.config import Config
 from muscle_memory.db import Store
@@ -124,6 +125,7 @@ def test_retriever_skips_embedding_for_obvious_no_match(tmp_db: Store, sample_co
     assert hits == []
     assert embedder.embed_one_calls == 0
     assert retriever.last_diagnostics.lexical_prefilter_skipped is True
+    assert retriever.last_diagnostics.reject_reason == "no lexical overlap with trusted skills"
 
 
 def test_retriever_still_embeds_when_tokens_overlap(tmp_db: Store, sample_config: Config) -> None:
@@ -142,6 +144,55 @@ def test_retriever_still_embeds_when_tokens_overlap(tmp_db: Store, sample_config
 
     assert embedder.embed_one_calls == 1
     assert retriever.last_diagnostics.lexical_prefilter_skipped is False
+
+
+def test_retriever_keeps_strong_matches_without_lexical_overlap(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="deploy staging with approval",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.5)],
+    ):
+        hits = retriever.retrieve("please help deploy something else")
+
+    assert hits
+    assert hits[0].skill.id == skill.id
+    assert retriever.last_diagnostics.reject_reason is None
+
+
+def test_retriever_rejects_borderline_weak_match_without_lexical_support(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="alpha beta gamma",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.9)],
+    ):
+        hits = retriever.retrieve("alpha something else here")
+
+    assert hits == []
+    assert retriever.last_diagnostics.reject_reason == "weak_match_without_lexical_support"
 
 
 def test_retriever_does_not_activate_quarantined_candidate(

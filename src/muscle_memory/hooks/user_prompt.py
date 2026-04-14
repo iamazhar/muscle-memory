@@ -125,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             rerank_ms=round(retriever.last_diagnostics.rerank_ms, 3),
             candidate_hits=retriever.last_diagnostics.candidate_hits,
             lexical_prefilter_skipped=retriever.last_diagnostics.lexical_prefilter_skipped,
+            reject_reason=retriever.last_diagnostics.reject_reason,
         )
         return 0
 
