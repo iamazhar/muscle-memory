@@ -9,7 +9,7 @@
 </p>
 
 
-`muscle-memory` gives Claude Code a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches your sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task.
+`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. For v1, the release story is Claude Code-first: Claude Code is the supported runtime adapter we prove in CI and release docs first, while the memory engine can also run in a generic harness mode with explicit `mm retrieve` and offline transcript ingest.
 
 Inspired by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869), but purpose-built for coding agents.
 
@@ -49,26 +49,36 @@ Then Claude **executes the playbook directly** — runs the commands, makes the 
 ## Quickstart
 
 ```bash
-# install (Anthropic default)
+# install (Claude runtime adapter + local embeddings by default)
 uv tool install muscle-memory
 
-# or with OpenAI support baked in
+# or with OpenAI support baked in for extraction/refinement
 uv tool install 'muscle-memory[openai]'
 
 # in your project
 cd ~/code/my-project
-mm init                    # creates .claude/mm.db, registers Claude Code hooks
 
-# optional: bootstrap from recent history
+# Claude Code runtime integration
+mm init --harness claude-code
+
+# or: generic harness mode for other agents/orchestrators
+mm init --harness generic
+
+# optional: bootstrap from recent Claude Code history
 mm bootstrap --days 30
 
-# now just use Claude Code normally.
-# skills accumulate automatically.
+# explicit retrieval for any harness
+mm retrieve "run the tests in this repo" --json
+
+# offline ingest of a Claude transcript
+mm ingest transcript ./session.jsonl --format claude-jsonl --no-extract
 
 # inspect what you've learned
 mm list
 mm show <skill-id>
 mm stats
+mm doctor
+mm jobs list
 
 # review quarantined candidates before they become retrievable
 mm review list
@@ -81,9 +91,15 @@ mm refine --auto           # sweep all skills meeting auto-refine criteria
 mm refine <id> --rollback  # undo the most recent refinement
 
 # maintenance
+mm maint pause         # pause hooks while you investigate a bad state
+mm maint resume        # resume hooks after recovery
+mm doctor              # inspect runtime health, retrieval decisions, and jobs
+mm review list         # inspect quarantined candidates before promoting them
+mm jobs retry-failed   # retry failed background extraction/refinement work
 mm maint dedup             # collapse near-duplicate skills
 mm maint rescore           # re-run the outcome heuristic on stored episodes
 mm maint prune             # delete demonstrably bad skills
+mm maint govern            # eval-driven demotion / review recommendations
 ```
 
 ## Try The Demo
@@ -93,15 +109,20 @@ If you want a realistic place to dogfood the product immediately, use the in-rep
 marketing page, an interactive dashboard, a local smoke-check command, and its own
 project-local `.claude` anchor so skills stay isolated from the repo root.
 
-## Authentication
+## Runtime adapters and authentication
 
-No API key needed. Extraction shells out to `claude -p`, so it uses your
-existing Claude Code subscription auth. Just be logged into Claude Code.
+For Claude Code runtime integration, `mm init --harness claude-code` installs hooks into `.claude/settings.json` and uses the existing Claude Code session to capture prompts/transcripts.
 
-For OpenAI as an alternative backend: `export MM_LLM_PROVIDER=openai`
-and `export OPENAI_API_KEY=sk-...`.
+If you are using another harness, initialize with `mm init --harness generic` and use:
+- `mm retrieve ...` for explicit retrieval before prompting your agent
+- `mm ingest transcript ...` or `mm ingest episode ...` for offline learning
+- Codex transcripts are supported via `mm ingest transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
+
+For extraction/refinement, the default LLM backend is still `claude-code`. If you prefer API-key-based extraction, set `MM_LLM_PROVIDER=openai` and `OPENAI_API_KEY=***`.
 
 ## How it works
+
+The core engine is harness-agnostic: retrieval, scoring, extraction, and storage live in the same memory layer regardless of runtime. The diagram below shows the Claude Code adapter path; other harnesses can use explicit `mm retrieve` plus offline `mm ingest ...`.
 
 ```
 ┌────────────────────────── Claude Code Session ────────────────────────────┐
@@ -146,8 +167,7 @@ Newly extracted skills do not go straight into live retrieval.
 - `live`: trusted enough to retrieve automatically
 - `proven`: repeatedly successful and strongly trusted
 
-Candidates can be promoted automatically when the same procedure is learned from
-multiple distinct successful episodes, or manually via `mm review approve`.
+Candidates are promoted conservatively: they need repeated evidence from distinct successful source episodes before auto-promotion, or manual approval via `mm review approve`. Trust can also move in the other direction now — weak `live`/`proven` skills can be flagged for review or demotion by the eval-governance pass.
 
 ## Skill anatomy
 

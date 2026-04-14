@@ -25,6 +25,8 @@ from muscle_memory.hooks.stop import main as stop_main
 from muscle_memory.hooks.stop import parse_transcript
 from muscle_memory.hooks.user_prompt import main as user_prompt_main
 from muscle_memory.models import (
+    JobKind,
+    JobStatus,
     Outcome,
     Skill,
     ToolCall,
@@ -87,6 +89,86 @@ class TestHookResilience:
         with patch("sys.stdin", stdin):
             rc = stop_main()
         assert rc == 0
+
+    def test_stop_hook_nonexistent_transcript_writes_debug_log(self, tmp_path: Path) -> None:
+        payload = {
+            "session_id": "debug-stop",
+            "cwd": str(tmp_path),
+            "transcript_path": "/path/that/does/not/exist.jsonl",
+        }
+        stdin = StringIO(json.dumps(payload))
+        with patch.dict("os.environ", {"MM_DEBUG": "1"}, clear=False):
+            with patch("sys.stdin", stdin):
+                rc = stop_main()
+
+        assert rc == 0
+        log_path = tmp_path / ".claude" / "mm.debug.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        assert entries[-1]["component"] == "stop"
+        assert entries[-1]["event"] == "missing_transcript"
+        assert entries[-1]["session_id"] == "debug-stop"
+
+    def test_stop_hook_records_extract_job(self, tmp_path: Path) -> None:
+        project_dir = tmp_path
+        claude_dir = project_dir / ".claude"
+        claude_dir.mkdir()
+        store = Store(claude_dir / "mm.db")
+        transcript = project_dir / "session.jsonl"
+        transcript.write_text(
+            json.dumps({"type": "user", "message": {"content": "run the tests"}})
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "tool-1",
+                                "name": "Bash",
+                                "input": {"command": "pytest"},
+                            }
+                        ]
+                    },
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "tool-1",
+                                "content": "5 passed in 1.0s",
+                                "is_error": False,
+                            }
+                        ]
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        payload = {
+            "session_id": "sess-1",
+            "cwd": str(project_dir),
+            "transcript_path": str(transcript),
+        }
+        stdin = StringIO(json.dumps(payload))
+        with patch("muscle_memory.hooks.stop.subprocess.Popen") as popen:
+            with patch("sys.stdin", stdin), patch("sys.stdout", StringIO()):
+                rc = stop_main()
+
+        assert rc == 0
+        assert popen.called
+        jobs = store.list_jobs(limit=None)
+        assert len(jobs) == 1
+        assert jobs[0].kind is JobKind.EXTRACT
+        assert jobs[0].status is JobStatus.RUNNING
+        assert jobs[0].payload["episode_id"]
 
     def test_stop_hook_transcript_with_only_comments(self, tmp_path: Path) -> None:
         """JSONL files can have blank lines. Parse shouldn't care."""

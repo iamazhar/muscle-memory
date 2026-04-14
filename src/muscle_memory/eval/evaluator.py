@@ -181,6 +181,13 @@ class HealthReport:
     tokens_exploration: int = 0  # tokens the original discovery cost (from source episodes)
 
 
+@dataclass
+class GovernanceReport:
+    demote_skill_ids: list[str] = field(default_factory=list)
+    refine_skill_ids: list[str] = field(default_factory=list)
+    review_skill_ids: list[str] = field(default_factory=list)
+
+
 def evaluate_health(store: Store) -> HealthReport:
     """Score all skill activations and produce a health report.
 
@@ -381,6 +388,27 @@ def render_health_report(report: HealthReport) -> None:
             f"  [yellow]{report.needs_review_count} need review[/yellow]"
             f" ([bold]mm eval label[/bold])"
         )
+
+
+def evaluate_governance(store: Store) -> GovernanceReport:
+    """Translate health metrics into governance actions.
+
+    Current rules are conservative and require >=3 activations before making
+    any recommendation.
+    """
+    health = evaluate_health(store)
+    report = GovernanceReport()
+    for ph in health.per_skill:
+        if ph.activations < 3:
+            continue
+        if ph.health_pct < 0.5:
+            report.demote_skill_ids.append(ph.skill_id)
+        if ph.avg_adherence < 0.5 or ph.incorrect >= 2:
+            report.refine_skill_ids.append(ph.skill_id)
+        low_relevance_with_signal = ph.avg_relevance > 0.0 and ph.avg_relevance < 0.5
+        if low_relevance_with_signal or ph.needs_review > 0:
+            report.review_skill_ids.append(ph.skill_id)
+    return report
 
 
 def _bar(value: int, max_value: int, color: str, *, width: int = 30) -> str:

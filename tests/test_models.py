@@ -52,16 +52,23 @@ class TestSkill:
         s.recompute_maturity()
         assert s.maturity is Maturity.CANDIDATE
 
-        # live at 2 successes with score >= 0.75
+        # still candidate with only one supporting source episode
         s.invocations = 2
         s.successes = 2
+        s.source_episode_ids = ["ep1"]
         s.recompute_score()
+        s.recompute_maturity()
+        assert s.maturity is Maturity.CANDIDATE
+
+        # live at 2 successes with score >= 0.75 and repeated evidence
+        s.source_episode_ids = ["ep1", "ep2"]
         s.recompute_maturity()
         assert s.maturity is Maturity.LIVE
 
         # proven at 10 successes with score >= 0.7
         s.invocations = 13
         s.successes = 10
+        s.source_episode_ids = [f"ep{i}" for i in range(1, 11)]
         s.recompute_score()
         s.recompute_maturity()
         assert s.maturity is Maturity.PROVEN
@@ -73,17 +80,39 @@ class TestSkill:
             termination="t",
             invocations=3,
             successes=3,
+            source_episode_ids=["ep1", "ep2", "ep3"],
         )
         s.recompute_score()
         s.recompute_maturity()
         assert s.maturity is Maturity.LIVE
 
-        # failures drag score below threshold
+        # failures drag score below threshold -> candidate
         s.failures = 10
         s.invocations = 13
         s.recompute_score()
         s.recompute_maturity()
         assert s.maturity is Maturity.CANDIDATE
+
+    def test_proven_demotes_to_live_before_candidate(self) -> None:
+        s = Skill(
+            activation="a",
+            execution="e",
+            termination="t",
+            invocations=12,
+            successes=10,
+            failures=2,
+            source_episode_ids=[f"ep{i}" for i in range(10)],
+        )
+        s.recompute_score()
+        s.recompute_maturity()
+        assert s.maturity is Maturity.PROVEN
+
+        s.invocations = 15
+        s.successes = 10
+        s.failures = 5
+        s.recompute_score()
+        s.recompute_maturity()
+        assert s.maturity is Maturity.LIVE
 
 
 class TestTrajectory:

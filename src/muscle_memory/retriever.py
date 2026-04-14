@@ -14,6 +14,7 @@ formats into an `<additional_context>` block.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -127,14 +128,28 @@ def _content_tokens(text: str) -> set[str]:
     return tokens
 
 
-def _passes_relevance_gate(query_tokens: set[str], result: RetrievedSkill) -> bool:
-    """Keep strong semantic hits and require lexical corroboration for weaker ones."""
+def _passes_relevance_gate(query_tokens: set[str], result: RetrievedSkill) -> tuple[bool, str | None]:
+    """Keep strong semantic hits and explain why weaker ones were rejected."""
     if result.final_rank <= _STRONG_MATCH_MAX_RANK:
-        return True
+        return True, None
     if result.final_rank > _WEAK_MATCH_MAX_RANK:
-        return False
+        return False, "distance_above_weak_match_window"
     activation_tokens = _content_tokens(result.skill.activation)
-    return len(query_tokens & activation_tokens) >= 2
+    if len(query_tokens & activation_tokens) >= 2:
+        return True, None
+    return False, "weak_match_without_lexical_support"
+
+
+@dataclass
+class RetrievalDiagnostics:
+    embed_ms: float = 0.0
+    search_ms: float = 0.0
+    rerank_ms: float = 0.0
+    total_ms: float = 0.0
+    candidate_hits: int = 0
+    final_hits: int = 0
+    lexical_prefilter_skipped: bool = False
+    reject_reason: str | None = None
 
 
 class Retriever:
@@ -142,10 +157,28 @@ class Retriever:
         self.store = store
         self.embedder = embedder
         self.config = config
+        self.last_diagnostics = RetrievalDiagnostics()
+
+    def _passes_lexical_prefilter(self, query_tokens: set[str]) -> bool:
+        if len(query_tokens) < 3:
+            return True
+        for skill in self.store.list_skills(limit=None):
+            if skill.maturity is Maturity.CANDIDATE:
+                continue
+            if query_tokens & _content_tokens(skill.activation):
+                return True
+        return False
+
+    def _record_reject_reason(self, reason: str | None) -> None:
+        if reason and self.last_diagnostics.reject_reason is None:
+            self.last_diagnostics.reject_reason = reason
 
     def retrieve(self, query: str, *, top_k: int | None = None) -> list[RetrievedSkill]:
         """Return top-k skills relevant to `query`, ranked."""
+        start = time.perf_counter()
+        self.last_diagnostics = RetrievalDiagnostics()
         if not query or not query.strip():
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
         # Fast path: if the store has no skills yet, don't pay the
@@ -153,23 +186,37 @@ class Retriever:
         # for the first few Claude Code sessions after `mm init`,
         # before any skills have been extracted.
         if self.store.count_skills() == 0:
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
+            return []
+
+        query_tokens = _content_tokens(query)
+        if not self._passes_lexical_prefilter(query_tokens):
+            self.last_diagnostics.lexical_prefilter_skipped = True
+            self.last_diagnostics.reject_reason = "no lexical overlap with trusted skills"
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
         k = top_k if top_k is not None else self.config.retrieval_top_k
 
+        embed_start = time.perf_counter()
         query_emb = self.embedder.embed_one(query)
+        self.last_diagnostics.embed_ms = (time.perf_counter() - embed_start) * 1000
 
         # fetch a larger candidate pool, then rerank
+        search_start = time.perf_counter()
         hits = self.store.search_skills_by_embedding(
             query_emb,
             top_k=max(k * 3, 10),
             scope=None,  # project + global both visible
         )
+        self.last_diagnostics.search_ms = (time.perf_counter() - search_start) * 1000
+        self.last_diagnostics.candidate_hits = len(hits)
 
         if not hits:
+            self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
             return []
 
-        query_tokens = _content_tokens(query)
+        rerank_start = time.perf_counter()
         results: list[RetrievedSkill] = []
         for skill, distance in hits:
             if distance > 1.5:  # absurdly far
@@ -184,10 +231,24 @@ class Retriever:
 
         # hard floor on similarity: distance after bonus still has to be reasonable
         floor = self.config.retrieval_similarity_floor
-        results = [r for r in results if r.final_rank <= (2.0 - floor * 2.0)]
-        results = [r for r in results if _passes_relevance_gate(query_tokens, r)]
+        floor_threshold = 2.0 - floor * 2.0
+        filtered_results: list[RetrievedSkill] = []
+        for result in results:
+            if result.final_rank > floor_threshold:
+                self._record_reject_reason("distance_below_similarity_floor")
+                continue
+            passed, reason = _passes_relevance_gate(query_tokens, result)
+            if not passed:
+                self._record_reject_reason(reason)
+                continue
+            filtered_results.append(result)
+        results = filtered_results
+        final_results = results[:k]
+        self.last_diagnostics.rerank_ms = (time.perf_counter() - rerank_start) * 1000
+        self.last_diagnostics.final_hits = len(final_results)
+        self.last_diagnostics.total_ms = (time.perf_counter() - start) * 1000
 
-        return results[:k]
+        return final_results
 
     def mark_activated(self, retrieved: list[RetrievedSkill]) -> None:
         """Bump invocation count and last-used timestamp for activated skills."""

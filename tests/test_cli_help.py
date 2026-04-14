@@ -19,6 +19,8 @@ def test_top_level_help_is_trimmed() -> None:
     assert "stats" in out
     assert "bootstrap" in out
     assert "refine" in out
+    assert "retrieve" in out
+    assert "ingest" in out
     assert "maint" in out
     assert "share" in out
     assert "review" in out
@@ -50,6 +52,7 @@ def test_maint_help_lists_maintenance_commands() -> None:
     assert "dedup" in out
     assert "rescore" in out
     assert "prune" in out
+    assert "govern" in out
 
 
 def test_share_help_lists_transfer_commands() -> None:
@@ -67,3 +70,11 @@ def test_review_help_lists_review_commands() -> None:
     assert "list" in out
     assert "approve" in out
     assert "reject" in out
+
+
+def test_jobs_help_lists_job_commands() -> None:
+    result = runner.invoke(app, ["jobs", "--help"])
+    assert result.exit_code == 0
+    out = result.output
+    assert "list" in out
+    assert "retry" in out

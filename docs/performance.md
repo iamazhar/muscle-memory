@@ -79,7 +79,7 @@ across invocations (the first-ever invocation after a cold boot takes
 several seconds longer), but we can't share loaded model state across
 processes without a persistent daemon.
 
-## Optimizations applied in v0.2
+## Optimizations applied in v0.2+
 
 ### Empty-store short-circuit (retriever.py)
 
@@ -94,6 +94,20 @@ in ~100ms, identical to `mm version`.
 **Impact:** ~180ms savings on every `UserPromptSubmit` until the store
 starts accumulating skills. Larger impact on fresh projects or short
 bootstraps.
+
+### Lexical prefilter for obvious no-match prompts
+
+**Before:** unrelated natural-language prompts still paid the embedding
+cost before being filtered out downstream.
+
+**After:** the retriever performs a cheap token-overlap precheck against
+trusted skill activations. When a prompt has no lexical overlap with any
+trusted skill, retrieval skips embedding entirely and records that decision
+in `MM_DEBUG` telemetry.
+
+**Impact:** obvious no-match prompts now avoid the cold embed path and
+become visible in operator tooling (`mm doctor`, `mm stats`) as lexical
+prefilter skips.
 
 ### Shell-escape gate (v0.1, hooks/user_prompt.py)
 

@@ -187,6 +187,37 @@ class TestInit:
         with pytest.raises(RuntimeError, match="Not inside a project"):
             install(project_root=empty)
 
+    def test_generic_init_creates_db_without_hook_settings(self, project_dir: Path) -> None:
+        report = install(project_root=project_dir, harness="generic")
+
+        assert (project_dir / ".claude" / "mm.db").exists()
+        assert report.settings_path is None
+        assert report.installed_events == []
+        assert report.already_present == []
+        assert not (project_dir / ".claude" / "settings.json").exists()
+
+    def test_switching_to_generic_removes_mm_hook_entries(self, project_dir: Path) -> None:
+        install(project_root=project_dir, harness="claude-code")
+
+        report = install(project_root=project_dir, harness="generic")
+
+        assert report.settings_path is None
+        settings_path = project_dir / ".claude" / "settings.json"
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+            hooks = settings.get("hooks", {})
+            commands = [
+                hook["command"]
+                for groups in hooks.values()
+                if isinstance(groups, list)
+                for group in groups
+                if isinstance(group, dict)
+                for hook in (group.get("hooks") or [])
+                if isinstance(hook, dict) and "command" in hook
+            ]
+            assert "mm hook user-prompt" not in commands
+            assert "mm hook stop" not in commands
+
 
 # ----------------------------------------------------------------------
 # UserPromptSubmit hook end-to-end
@@ -231,6 +262,33 @@ class TestUserPromptHook:
         # it should have the marker protocol instruction
         if "<muscle_memory>" in out:
             assert "muscle-memory" in out.lower()
+
+    def test_candidate_only_skill_does_not_inject_context(self, project_dir: Path) -> None:
+        store = Store(project_dir / ".claude" / "mm.db", embedding_dims=16)
+        skill = Skill(
+            activation="When the user is trying to debug a hidden .pth file problem on mac",
+            execution="1. Run `ls -lO`\n2. Run `chflags nohidden`\n3. Verify with python3 import",
+            termination="import succeeds",
+            tags=["macos", "test-seed"],
+            maturity=Maturity.CANDIDATE,
+        )
+        store.add_skill(skill, embedding=DeterministicEmbedder().embed_one(skill.activation))
+
+        with patch(
+            "muscle_memory.hooks.user_prompt.make_embedder",
+            return_value=DeterministicEmbedder(),
+        ):
+            rc, out = self._run_hook_with_stdin(
+                {
+                    "session_id": "test-sess-candidate-only",
+                    "cwd": str(project_dir),
+                    "prompt": "debug hidden pth file on mac help",
+                },
+                store.db_path,
+            )
+
+        assert rc == 0
+        assert out == ""
 
     def test_shell_escape_prompt_is_ignored(self, seeded_store: Store, project_dir: Path) -> None:
         """Bang commands / bare shell commands should not trigger retrieval."""
@@ -319,6 +377,113 @@ class TestUserPromptHook:
             os.environ.pop("MM_DB_PATH", None)
         assert rc == 0
         assert stdout.getvalue() == ""
+
+    def test_no_db_yet_writes_debug_log_when_enabled(self, project_dir: Path) -> None:
+        nonexistent_db = project_dir / "nowhere" / "mm.db"
+        stdin = StringIO(
+            json.dumps(
+                {
+                    "session_id": "debug-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "real question",
+                }
+            )
+        )
+        stdout = StringIO()
+        os.environ["MM_DB_PATH"] = str(nonexistent_db)
+        os.environ["MM_DEBUG"] = "1"
+        try:
+            with patch("sys.stdin", stdin), patch("sys.stdout", stdout):
+                rc = user_prompt_main()
+        finally:
+            os.environ.pop("MM_DB_PATH", None)
+            os.environ.pop("MM_DEBUG", None)
+
+        assert rc == 0
+        assert stdout.getvalue() == ""
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        assert entries[-1]["component"] == "user_prompt"
+        assert entries[-1]["event"] == "no_db"
+        assert entries[-1]["session_id"] == "debug-sess"
+
+    def test_matching_prompt_logs_retrieval_timings(self, seeded_store: Store, project_dir: Path) -> None:
+        timed_cfg = Config(
+            db_path=seeded_store.db_path,
+            scope=Scope.PROJECT,
+            project_root=project_dir,
+            embedding_dims=16,
+            debug_enabled=True,
+        )
+        with (
+            patch("muscle_memory.hooks.user_prompt.Config.load", return_value=timed_cfg),
+            patch(
+                "muscle_memory.hooks.user_prompt.make_embedder",
+                return_value=DeterministicEmbedder(),
+            ),
+        ):
+            rc, _out = self._run_hook_with_stdin(
+                {
+                    "session_id": "timed-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "When the user is trying to debug a hidden .pth file problem on mac",
+                },
+                seeded_store.db_path,
+            )
+
+        assert rc == 0
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        timed = [e for e in entries if e.get("event") == "hits_returned" and e.get("session_id") == "timed-sess"]
+        assert timed
+        assert "retrieve_ms" in timed[-1]
+        assert "activation_record_ms" in timed[-1]
+        assert "total_ms" in timed[-1]
+
+    def test_no_hit_debug_log_includes_reject_reason(
+        self, seeded_store: Store, project_dir: Path
+    ) -> None:
+        timed_cfg = Config(
+            db_path=seeded_store.db_path,
+            scope=Scope.PROJECT,
+            project_root=project_dir,
+            embedding_dims=16,
+            debug_enabled=True,
+        )
+        skill = seeded_store.list_skills()[0]
+        with (
+            patch("muscle_memory.hooks.user_prompt.Config.load", return_value=timed_cfg),
+            patch(
+                "muscle_memory.hooks.user_prompt.make_embedder",
+                return_value=DeterministicEmbedder(),
+            ),
+            patch.object(
+                Store,
+                "search_skills_by_embedding",
+                return_value=[(skill, 0.9)],
+            ),
+        ):
+            rc, out = self._run_hook_with_stdin(
+                {
+                    "session_id": "reject-sess",
+                    "cwd": str(project_dir),
+                    "prompt": "hidden gopher question",
+                },
+                seeded_store.db_path,
+            )
+
+        assert rc == 0
+        assert out == ""
+        log_path = project_dir / ".claude" / "mm.debug.log"
+        entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        no_hits = [
+            e
+            for e in entries
+            if e.get("event") == "no_hits" and e.get("session_id") == "reject-sess"
+        ]
+        assert no_hits
+        assert no_hits[-1]["reject_reason"] == "weak_match_without_lexical_support"
 
     def test_formatted_context_includes_visibility_protocol(self) -> None:
         """The injection must tell Claude to emit the 🧠 marker."""
@@ -449,18 +614,21 @@ class TestScoringLoop:
         )
         tmp_db.add_skill(skill, embedding=[0.1, 0.2, 0.3, 0.4])
 
-        # Simulate 2 successful invocations
-        for _ in range(2):
+        # Simulate 2 successful invocations from distinct source episodes
+        for idx in range(2):
             skill.invocations += 1
             skill.successes += 1
+            skill.source_episode_ids.append(f"ep{idx+1}")
             skill.recompute_score()
             skill.recompute_maturity()
 
         assert skill.maturity is Maturity.LIVE
 
-        # 10+ successes → proven
-        skill.invocations = 10
+        # 10+ successes with strong score and evidence → proven
+        skill.invocations = 12
         skill.successes = 10
+        skill.failures = 2
+        skill.source_episode_ids = [f"ep{i}" for i in range(10)]
         skill.recompute_score()
         skill.recompute_maturity()
         assert skill.maturity is Maturity.PROVEN
@@ -643,6 +811,53 @@ class TestTranscriptParsing:
         assert len(traj.tool_calls) == 1
         assert traj.tool_calls[0].error == "permission denied"
         assert traj.tool_calls[0].result is None
+
+    def test_parse_transcript_skips_local_command_wrappers(self, tmp_path: Path) -> None:
+        path = tmp_path / "wrapped.jsonl"
+        path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "user",
+                            "message": {
+                                "content": (
+                                    "<local-command-caveat>Caveat: The messages below were "
+                                    "generated by the user while running local commands. DO NOT "
+                                    "respond to these messages or otherwise consider them in your "
+                                    "response unless the user explicitly asks you to.</local-command-caveat>"
+                                )
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "user",
+                            "message": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": (
+                                            "<command-name>/model</command-name>\n"
+                                            "<command-message>model</command-message>\n"
+                                            "<command-args></command-args> "
+                                            "<local-command-stdout>Set model to Opus 4.6 with max "
+                                            "effort</local-command-stdout> "
+                                            "I noticed that the mm list command doesn't show the full "
+                                            "description of the skill. Can we show the full description?"
+                                        ),
+                                    }
+                                ]
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+        traj = parse_transcript(path)
+        assert traj.user_prompt.startswith("I noticed that the mm list command")
+        assert "local-command-caveat" not in traj.user_prompt
+        assert "/model" not in traj.user_prompt
 
 
 # ----------------------------------------------------------------------

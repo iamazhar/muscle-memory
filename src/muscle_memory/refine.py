@@ -500,19 +500,17 @@ def should_auto_refine(skill: Skill) -> bool:
     """Does this skill meet the criteria for automatic refinement?
 
     We only auto-refine skills that have:
+      - Reached a trusted maturity stage
       - Been tried enough to have signal (≥ MIN_INVOCATIONS_FOR_AUTO)
       - Failed a meaningful number of times (≥ MIN_FAILURES_FOR_AUTO)
       - A success rate below MAX_SUCCESS_RATE_FOR_AUTO
     """
-    if skill.maturity is Maturity.CANDIDATE:
-        return False
-    if skill.invocations < MIN_INVOCATIONS_FOR_AUTO:
-        return False
-    if skill.failures < MIN_FAILURES_FOR_AUTO:
-        return False
-    if skill.score > MAX_SUCCESS_RATE_FOR_AUTO:
-        return False
-    return True
+    return (
+        skill.maturity in {Maturity.LIVE, Maturity.PROVEN}
+        and skill.invocations >= MIN_INVOCATIONS_FOR_AUTO
+        and skill.failures >= MIN_FAILURES_FOR_AUTO
+        and skill.score <= MAX_SUCCESS_RATE_FOR_AUTO
+    )
 
 
 __all__ = [

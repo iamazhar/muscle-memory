@@ -60,6 +60,22 @@ class Scope(str, Enum):
     GLOBAL = "global"
 
 
+class JobKind(str, Enum):
+    """Background job category."""
+
+    EXTRACT = "extract"
+    REFINE = "refine"
+
+
+class JobStatus(str, Enum):
+    """Background job lifecycle state."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class ToolCall(BaseModel):
     """A single tool invocation within a trajectory."""
 
@@ -169,16 +185,25 @@ class Skill(BaseModel):
             self.score = _clamp01(self.successes / self.invocations)
 
     def recompute_maturity(self) -> None:
-        """Promote Skills that have proven themselves.
+        """Recompute trust stage from observed performance + evidence.
 
         Rules of thumb:
-          * < 2 successes → candidate
-          * 2–9 successes, score ≥ 0.75 → live
-          * ≥ 10 successes, score ≥ 0.7 → proven
+          * proven: strong repeated success (>=10 successes, score >= 0.75)
+          * live: useful and sufficiently evidenced
+            - >=2 successes
+            - score >= 0.6
+            - at least 2 distinct supporting source episodes
+          * otherwise: candidate
+
+        This intentionally makes promotion stricter than simple success ratio,
+        while allowing demotion from proven -> live before falling all the way
+        back to candidate.
         """
-        if self.successes >= 10 and self.score >= 0.7:
+        distinct_sources = len(dict.fromkeys(self.source_episode_ids))
+
+        if self.successes >= 10 and self.score >= 0.75:
             self.maturity = Maturity.PROVEN
-        elif self.successes >= 2 and self.score >= 0.75:
+        elif self.successes >= 2 and self.score >= 0.6 and distinct_sources >= 2:
             self.maturity = Maturity.LIVE
         else:
             self.maturity = Maturity.CANDIDATE
@@ -202,3 +227,16 @@ class Episode(BaseModel):
 
     # which skills were active during this episode (by id)
     activated_skills: list[str] = Field(default_factory=list)
+
+
+class BackgroundJob(BaseModel):
+    """Tracked asynchronous work item."""
+
+    id: str = Field(default_factory=_new_id)
+    kind: JobKind
+    status: JobStatus = JobStatus.PENDING
+    payload: dict[str, Any] = Field(default_factory=dict)
+    attempts: int = 0
+    error: str | None = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)

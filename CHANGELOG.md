@@ -5,6 +5,40 @@ All notable changes to `muscle-memory` will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+---
+
+## [0.9.0] — 2026-04-14
+
+### Added
+
+- `MM_DEBUG` hook logging to `.claude/mm.debug.log` for `user-prompt` and `stop` lifecycle visibility
+- Tracked async background jobs in SQLite with `mm jobs list`, `mm jobs retry`, and `mm jobs retry-failed`
+- `mm doctor` runtime diagnostics for DB/job/debug-log inspection
+- Retrieval telemetry in debug logs plus surfaced summaries in `mm doctor` and `mm stats`
+- Cheap lexical prefilter in the retriever to skip embedding on obvious no-match prompts
+- Eval-driven governance recommendations via `evaluate_governance()` and the `mm maint govern` command
+- Richer `mm review list` output with candidate evidence, promotion readiness, and review reasons
+
+### Changed
+
+- Promotion to `live` now requires repeated evidence from distinct source episodes
+- `proven` promotion now requires stronger sustained performance
+- Skills can demote from `proven` to `live` or `candidate` as performance degrades
+- `mm stats` now surfaces pending/failed jobs, debug-log presence, retrieval telemetry, and governance signals
+- `mm doctor` now explains the latest retrieval decision in operator-friendly language
+
+---
+
+### Fixed
+
+- Claude transcript parsing now strips local-command and slash-command wrapper noise before storing user prompts
+- Relevance scoring now falls back to cleaned followup text when the captured prompt is only Claude wrapper noise
+- The frozen release benchmark is now a curated Claude Code-first artifact with repo provenance and passing release thresholds
+
+---
+
 ## [0.8.0] — 2026-04-11
 
 ### Added
@@ -321,6 +355,7 @@ to install with `uv tool install muscle-memory`.
   so multi-turn executions drop the marker from stdout. Interactive
   Claude Code users see it every time. Documented in `docs/testing.md`.
 
+[0.9.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.9.0
 [0.8.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.8.0
 [0.2.1]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.0

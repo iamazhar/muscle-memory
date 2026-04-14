@@ -36,6 +36,9 @@ def test_review_list_shows_candidates_only(tmp_path: Path) -> None:
         termination="tests pass",
         maturity=Maturity.CANDIDATE,
         source_episode_ids=["ep1", "ep2"],
+        successes=2,
+        invocations=2,
+        score=1.0,
     )
     live = Skill(
         activation="When git push is rejected",
@@ -57,6 +60,37 @@ def test_review_list_shows_candidates_only(tmp_path: Path) -> None:
     assert len(data) == 1
     assert data[0]["id"] == candidate.id
     assert data[0]["source_evidence"] == 2
+    assert data[0]["review_reason"]
+    assert data[0]["auto_promote_ready"] is True
+
+
+def test_review_list_rich_output_includes_reason_column(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+
+    candidate = Skill(
+        activation="When pytest import fails",
+        execution="1. inspect import path\n2. run test runner",
+        termination="tests pass",
+        maturity=Maturity.CANDIDATE,
+        source_episode_ids=["ep1"],
+        successes=1,
+        invocations=2,
+        score=0.5,
+    )
+    store.add_skill(candidate)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["review", "list"])
+
+    assert result.exit_code == 0
+    assert "reason" in result.output.lower()
+    assert "evidence" in result.output.lower()
 
 
 def test_review_approve_promotes_candidate(tmp_path: Path) -> None:

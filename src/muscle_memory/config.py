@@ -30,6 +30,7 @@ DEFAULT_EMBEDDER = "fastembed"
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_EMBEDDING_DIMS = 384
 DEFAULT_LLM_PROVIDER = "claude-code"
+DEFAULT_HARNESS = "claude-code"
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -75,6 +76,9 @@ class Config:
     llm_model: str = DEFAULT_ANTHROPIC_MODEL
     llm_api_key: str | None = None
 
+    # harness
+    harness: str = DEFAULT_HARNESS
+
     # retrieval
     retrieval_top_k: int = 3
     retrieval_similarity_floor: float = 0.25
@@ -87,6 +91,8 @@ class Config:
 
     # misc
     log_level: str = "INFO"
+    debug_enabled: bool = False
+    auto_refine_enabled: bool = True
 
     extra: dict[str, str] = field(default_factory=dict)
 
@@ -97,6 +103,7 @@ class Config:
         db_path: Path | None = None,
         scope: Scope | None = None,
         start_dir: Path | None = None,
+        harness: str | None = None,
     ) -> Config:
         """Resolve a Config from env vars and on-disk layout.
 
@@ -138,6 +145,8 @@ class Config:
         if llm_provider.lower() == "openai":
             llm_api_key = _env("MM_LLM_API_KEY") or _env("OPENAI_API_KEY")
 
+        resolved_harness = harness or _env("MM_HARNESS", DEFAULT_HARNESS) or DEFAULT_HARNESS
+
         # embedder
         embedder = _env("MM_EMBEDDER", DEFAULT_EMBEDDER) or DEFAULT_EMBEDDER
         embedding_model = (
@@ -153,7 +162,13 @@ class Config:
             llm_provider=llm_provider,
             llm_model=llm_model,
             llm_api_key=llm_api_key,
+            harness=resolved_harness,
             log_level=_env("MM_LOG_LEVEL", "INFO") or "INFO",
+            debug_enabled=(_env("MM_DEBUG", "0") or "0").lower() in {"1", "true", "yes", "on"},
+            auto_refine_enabled=(
+                _env("MM_AUTO_REFINE", "1") or "1"
+            ).lower()
+            in {"1", "true", "yes", "on"},
         )
 
     def ensure_db_dir(self) -> None:

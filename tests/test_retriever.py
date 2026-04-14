@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from unittest.mock import patch
 
 from muscle_memory.config import Config
 from muscle_memory.db import Store
@@ -15,10 +16,14 @@ class FakeEmbedder:
 
     dims = 4
 
+    def __init__(self) -> None:
+        self.embed_one_calls = 0
+
     def embed(self, texts: Iterable[str]) -> list[list[float]]:
         return [self.embed_one(t) for t in texts]
 
     def embed_one(self, text: str) -> list[float]:
+        self.embed_one_calls += 1
         # Use word fingerprint as a crude deterministic vector.
         words = text.lower().split()
         v = [0.0, 0.0, 0.0, 0.0]
@@ -100,6 +105,123 @@ def test_retriever_filters_obviously_unrelated_prompt(tmp_db: Store, sample_conf
     retriever = Retriever(tmp_db, embedder, sample_config)
     hits = retriever.retrieve("What is the capital of France?")
     assert hits == []
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is True
+
+
+def test_retriever_skips_embedding_for_obvious_no_match(tmp_db: Store, sample_config: Config) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When Kubernetes pods are CrashLoopBackOff in production",
+        execution="inspect pods",
+        termination="root cause found",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+    embedder.embed_one_calls = 0
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    hits = retriever.retrieve("What is the capital of France?")
+
+    assert hits == []
+    assert embedder.embed_one_calls == 0
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is True
+    assert retriever.last_diagnostics.reject_reason == "no lexical overlap with trusted skills"
+
+
+def test_retriever_still_embeds_when_tokens_overlap(tmp_db: Store, sample_config: Config) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="When pytest fails with ModuleNotFoundError",
+        execution="inspect the import path",
+        termination="tests pass",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+    embedder.embed_one_calls = 0
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    _hits = retriever.retrieve("pytest import errors in tests")
+
+    assert embedder.embed_one_calls == 1
+    assert retriever.last_diagnostics.lexical_prefilter_skipped is False
+
+
+def test_retriever_keeps_strong_matches_without_lexical_overlap(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="deploy staging with approval",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        retriever,
+        "_passes_lexical_prefilter",
+        return_value=True,
+    ), patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.5)],
+    ):
+        hits = retriever.retrieve("mysterious canary rollout procedure")
+
+    assert hits
+    assert hits[0].skill.id == skill.id
+    assert retriever.last_diagnostics.reject_reason is None
+
+
+def test_retriever_rejects_borderline_weak_match_without_lexical_support(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="alpha beta gamma",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.9)],
+    ):
+        hits = retriever.retrieve("alpha something else here")
+
+    assert hits == []
+    assert retriever.last_diagnostics.reject_reason == "weak_match_without_lexical_support"
+
+
+def test_retriever_uses_distinct_reason_when_below_similarity_floor(
+    tmp_db: Store, sample_config: Config
+) -> None:
+    sample_config.retrieval_similarity_floor = 0.7
+    embedder = FakeEmbedder()
+    skill = Skill(
+        activation="alpha beta gamma",
+        execution="e",
+        termination="t",
+        maturity=Maturity.LIVE,
+    )
+    tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
+
+    retriever = Retriever(tmp_db, embedder, sample_config)
+    with patch.object(
+        tmp_db,
+        "search_skills_by_embedding",
+        return_value=[(skill, 0.8)],
+    ):
+        hits = retriever.retrieve("alpha beta support")
+
+    assert hits == []
+    assert retriever.last_diagnostics.reject_reason == "distance_below_similarity_floor"
 
 
 def test_retriever_does_not_activate_quarantined_candidate(

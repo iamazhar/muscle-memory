@@ -24,6 +24,51 @@ uv tool install --from . muscle-memory
 mm --version
 ```
 
+For the Claude Code-first v1 release path, the supported surface is the
+Claude Code harness plus the behavioral release proof. If a session gets into a
+bad state, the same recovery commands used in production docs apply here:
+`mm maint pause`, `mm maint resume`, `mm doctor`, `mm review list`, and
+`mm jobs retry-failed`.
+
+To verify the first release gate locally, run the release preflight:
+
+```bash
+uv run python scripts/release_preflight.py $(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)
+```
+
+For the full CI-equivalent package path, also run the benchmark gate, build,
+distribution checks, checksum generation, and smoke tests. The complete ordered
+release sequence lives in [docs/release.md](release.md).
+
+If you want the lower-level package checks individually:
+
+```bash
+uv build
+uv run python scripts/generate_release_checksums.py $(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)
+uv run python scripts/check_release_artifacts.py $(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)
+```
+
 ## Running the CLI during development
 
 Two options:
@@ -31,9 +76,11 @@ Two options:
 ```bash
 # option 1: via the editable venv (after ./scripts/dev-sync)
 .venv/bin/mm list
+.venv/bin/mm init --harness generic
 
 # option 2: via PYTHONPATH
 PYTHONPATH=src python -m muscle_memory list
+PYTHONPATH=src python -m muscle_memory retrieve "run the tests" --json
 ```
 
 ## Publishing a release
@@ -43,8 +90,11 @@ PYTHONPATH=src python -m muscle_memory list
 3. In GitHub Actions, run the `Release` workflow and pass that same version.
 
 The workflow validates version consistency, runs the test suite, builds the
-wheel and sdist, extracts the matching changelog section as release notes,
-pushes tag `vX.Y.Z`, creates a GitHub release, and can publish to PyPI.
+wheel and sdist, smoke-tests clean installs from both artifacts, generates
+GitHub artifact attestations for the built distributions, extracts the matching
+changelog section as release notes, pushes tag `vX.Y.Z`, can publish to PyPI,
+emits a `SHA256SUMS` manifest for the release artifacts, and creates a GitHub
+release.
 
 If you also maintain the separate Homebrew tap, bump the formula there after
 the GitHub release is live so `brew update` can discover the new version.
@@ -73,17 +123,22 @@ src/muscle_memory/
 ├── db.py             # SQLite + sqlite-vec DAO
 ├── config.py         # env var + path resolution
 ├── embeddings.py     # pluggable Embedder (fastembed, openai, voyage)
-├── llm.py            # pluggable LLM (anthropic default)
+├── llm.py            # pluggable LLM backend for extraction/refinement
+├── ingest.py         # offline transcript / episode ingest pipeline
 ├── extractor.py      # trajectory → candidate Skills
 ├── outcomes.py       # heuristic success/failure detection
-├── retriever.py      # query → top-k Skills (fast path for hooks)
+├── retriever.py      # query → top-k Skills (hooks or explicit retrieve)
 ├── scorer.py         # credit assignment + pruning
 ├── bootstrap.py      # seed from Claude Code session history
 ├── cli.py            # `mm` typer app
+├── harness/
+│   ├── base.py       # harness adapter interface
+│   ├── claude_code.py# Claude Code runtime adapter
+│   └── generic.py    # harness-agnostic / offline-only adapter
 ├── hooks/
 │   ├── user_prompt.py   # UserPromptSubmit handler
 │   ├── stop.py          # Stop handler + transcript parser
-│   └── install.py       # wires .claude/settings.json
+│   └── install.py       # routes init/install through harness adapters
 └── prompts/
     └── extract.md    # skill extraction prompt (version-controlled)
 ```

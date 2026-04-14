@@ -1,5 +1,3 @@
-"""Tests for the evaluation system."""
-
 from __future__ import annotations
 
 import uuid
@@ -10,6 +8,7 @@ from muscle_memory.db import Store
 from muscle_memory.eval import EvalLabel
 from muscle_memory.eval.evaluator import (
     evaluate_credits,
+    evaluate_governance,
     evaluate_impact,
 )
 from muscle_memory.models import Episode, Outcome, Skill, ToolCall, Trajectory
@@ -214,3 +213,46 @@ class TestImpactEval:
         result = evaluate_impact(store)
         assert len(result.per_skill) == 1
         assert abs(result.per_skill[0].success_rate - 2 / 3) < 0.01
+
+
+class TestGovernanceEval:
+    def test_flags_candidate_for_demotion_and_refine(self, store):
+        skill = Skill(
+            id="skill_bad_health",
+            activation="When tests fail",
+            execution="1. Run `pytest`\n2. Fix failures",
+            termination="Tests pass",
+            maturity="live",
+            invocations=5,
+            successes=4,
+            failures=1,
+            score=0.8,
+            source_episode_ids=["ep1", "ep2"],
+        )
+        store.add_skill(skill)
+        store.add_episode(
+            _make_episode(
+                Outcome.FAILURE,
+                activated_skills=[skill.id],
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "ls"}, result="ok")],
+            )
+        )
+        store.add_episode(
+            _make_episode(
+                Outcome.FAILURE,
+                activated_skills=[skill.id],
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "pwd"}, result="ok")],
+            )
+        )
+        store.add_episode(
+            _make_episode(
+                Outcome.FAILURE,
+                activated_skills=[skill.id],
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "echo ok"}, result="ok")],
+            )
+        )
+
+        result = evaluate_governance(store)
+        assert result.demote_skill_ids == [skill.id]
+        assert result.refine_skill_ids == [skill.id]
+        assert result.review_skill_ids == [skill.id]

@@ -14,6 +14,21 @@
 Total: **99 passing tests** run by `pytest` in under a second. Behavioral
 tests are skipped by default because they spawn real Claude Code sessions.
 
+## Claude Code-first v1
+
+The v1 release story is Claude Code-first. The fast suites protect the core
+engine, but the behavioral suite is the release proof for the supported
+surface.
+
+If a Claude Code session needs recovery, use the operator commands we rely on
+in the rest of the repo:
+
+- `mm maint pause`
+- `mm maint resume`
+- `mm doctor`
+- `mm review list`
+- `mm jobs retry-failed`
+
 ## Running tests
 
 ```bash
@@ -26,6 +41,14 @@ tests are skipped by default because they spawn real Claude Code sessions.
 # include slow behavioral tests (real Claude Code)
 CLAUDE_TESTS=1 .venv/bin/python -m pytest tests/test_behavioral.py -v
 ```
+
+## Behavioral isolation
+
+`tests/test_behavioral.py` runs Claude with `--setting-sources project` so
+user- and global-level Claude settings do not leak into the stream. That keeps
+the behavioral subprocess hermetic while still allowing project-local
+`.claude/settings.json` hooks to run. When reproducing the behavioral suite
+manually, use the same flag.
 
 ## The `claude -p` final-text-only gotcha
 
@@ -112,9 +135,9 @@ This is tested in `test_edge_cases.py::TestHookResilience` with 9+
 garbage-input cases (empty, binary, null, wrong-shape JSON, missing
 fields, nonexistent transcript paths). Every one returns 0 cleanly.
 
-If you're debugging why a skill isn't firing and suspect a silent
-hook crash, temporarily set `MM_DEBUG=1` (not implemented yet — file
-a feature request if you need it).
+For debugging, set `MM_DEBUG=1`. Hooks then append structured JSONL events to
+`.claude/mm.debug.log` for retrieval decisions, transcript/episode handling,
+background job spawn attempts, and timing telemetry.
 
 ## Parallel behavioral testing
 
