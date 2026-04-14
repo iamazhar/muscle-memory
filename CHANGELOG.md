@@ -7,6 +7,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+---
+
+## [0.9.0] — 2026-04-14
+
 ### Added
 
 - `MM_DEBUG` hook logging to `.claude/mm.debug.log` for `user-prompt` and `stop` lifecycle visibility
@@ -24,6 +28,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Skills can demote from `proven` to `live` or `candidate` as performance degrades
 - `mm stats` now surfaces pending/failed jobs, debug-log presence, retrieval telemetry, and governance signals
 - `mm doctor` now explains the latest retrieval decision in operator-friendly language
+
+---
+
+### Fixed
+
+- Claude transcript parsing now strips local-command and slash-command wrapper noise before storing user prompts
+- Relevance scoring now falls back to cleaned followup text when the captured prompt is only Claude wrapper noise
+- The frozen release benchmark is now a curated Claude Code-first artifact with repo provenance and passing release thresholds
 
 ---
 
@@ -343,6 +355,7 @@ to install with `uv tool install muscle-memory`.
   so multi-turn executions drop the marker from stdout. Interactive
   Claude Code users see it every time. Documented in `docs/testing.md`.
 
+[0.9.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.9.0
 [0.8.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.8.0
 [0.2.1]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.1
 [0.2.0]: https://github.com/iamazhar/muscle-memory/releases/tag/v0.2.0
