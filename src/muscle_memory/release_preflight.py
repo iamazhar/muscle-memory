@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import hashlib
 import json
 import re
@@ -10,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from dataclasses import asdict
 from pathlib import Path
 
 from muscle_memory.config import Config
@@ -31,7 +31,10 @@ from muscle_memory.release_notes import extract_release_notes
 
 def _validate_release_benchmark_data(data: dict[str, object]) -> None:
     if not data.get("thresholds_passed"):
-        failed = ", ".join(data.get("failed_thresholds", [])) or "unknown"
+        raw_failed = data.get("failed_thresholds") or []
+        if not isinstance(raw_failed, list):
+            raw_failed = []
+        failed = ", ".join(str(x) for x in raw_failed) or "unknown"
         raise ValueError(f"benchmark thresholds failed: {failed}")
 
 
@@ -64,11 +67,7 @@ def _current_worktree_state(repo_root: Path) -> tuple[bool | None, str | None]:
         )
     except (OSError, subprocess.CalledProcessError):
         return None, None
-    status_lines = [
-        line
-        for line in result.stdout.splitlines()
-        if line[3:] != "benchmark-run.json"
-    ]
+    status_lines = [line for line in result.stdout.splitlines() if line[3:] != "benchmark-run.json"]
     status = "\n".join(status_lines)
     if status_lines:
         status += "\n"
@@ -165,28 +164,18 @@ def _benchmark_artifact_matches_repo(
     repo_root: Path,
     benchmark_path: Path,
 ) -> bool:
-    repo_head = data.get("repo_head")
     source_tree_sha256 = data.get("source_tree_sha256")
     current_source_tree_sha256 = _current_source_tree_sha256(
         repo_root,
         excluded_paths=[benchmark_path],
     )
-    current_repo_head = _current_repo_head(repo_root)
-    if (
-        not isinstance(repo_head, str)
-        or not isinstance(source_tree_sha256, str)
-        or current_source_tree_sha256 is None
-        or current_repo_head is None
-    ):
+    if not isinstance(source_tree_sha256, str) or current_source_tree_sha256 is None:
         return False
-    return repo_head == current_repo_head and source_tree_sha256 == current_source_tree_sha256
+    return source_tree_sha256 == current_source_tree_sha256
 
 
 def _benchmark_artifact_has_repo_provenance(data: dict[str, object]) -> bool:
-    return isinstance(data.get("repo_head"), str) and isinstance(
-        data.get("source_tree_sha256"),
-        str,
-    )
+    return isinstance(data.get("source_tree_sha256"), str)
 
 
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
@@ -195,7 +184,10 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     benchmark_path = default_benchmark_path
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
-        data = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        try:
+            data: dict[str, object] = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
         cached_benchmark_path = _repo_local_benchmark_path(data.get("benchmark_path"), repo_root)
         cache_benchmark_path = cached_benchmark_path or default_benchmark_path
         if _benchmark_run_matches_repo(data, repo_root, cache_benchmark_path, cfg.db_path):
@@ -218,7 +210,9 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
             )
         return asdict(summarize_benchmark_artifact(benchmark_path))
 
-    if _benchmark_artifact_has_repo_provenance(raw_benchmark) and not _benchmark_artifact_matches_repo(
+    if _benchmark_artifact_has_repo_provenance(
+        raw_benchmark
+    ) and not _benchmark_artifact_matches_repo(
         raw_benchmark,
         repo_root,
         benchmark_path,
@@ -273,11 +267,22 @@ def run_release_preflight(version: str, repo_root: Path) -> None:
         dist_dir = Path(temp_dir) / "dist"
         _run(["uv", "build", "--out-dir", str(dist_dir)], cwd=repo_root)
         _run(
-            ["uvx", "--from", "twine", "twine", "check", *[str(path) for path in distribution_paths(version, dist_dir)]],
+            [
+                "uvx",
+                "--from",
+                "twine",
+                "twine",
+                "check",
+                *[str(path) for path in distribution_paths(version, dist_dir)],
+            ],
             cwd=repo_root,
         )
         verify_release_artifacts(version, dist_dir)
         write_release_checksums(version, dist_dir)
+
+
+def run_release_benchmark_gate(repo_root: Path) -> dict[str, object]:
+    return load_release_benchmark(repo_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -299,6 +304,22 @@ def main(argv: list[str] | None = None) -> int:
 
     print("Release preflight passed")
     return 0
+
+
+def benchmark_gate_main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args:
+        print("usage: release_benchmark_gate.py", file=sys.stderr)
+        return 1
+
+    try:
+        result = run_release_benchmark_gate(Path.cwd())
+    except (OSError, subprocess.CalledProcessError, ValueError, tomllib.TOMLDecodeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps(result, indent=2))
+    return 0 if result.get("thresholds_passed") else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

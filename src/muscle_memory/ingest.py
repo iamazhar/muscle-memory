@@ -34,7 +34,9 @@ def episode_from_transcript(
     _validate_transcript_signal(transcript_format, trajectory)
 
     if transcript_format == "codex-jsonl" and not prompt_override:
-        raise ValueError("codex-jsonl ingest requires --prompt because Codex logs do not preserve the original user prompt")
+        raise ValueError(
+            "codex-jsonl ingest requires --prompt because Codex logs do not preserve the original user prompt"
+        )
 
     if prompt_override:
         trajectory.user_prompt = prompt_override
@@ -101,7 +103,9 @@ def ingest_transcript_file(
     return episode, added
 
 
-def ingest_episode_file(path: Path, *, config: Config, store: Store, extract: bool = True) -> tuple[Episode, int]:
+def ingest_episode_file(
+    path: Path, *, config: Config, store: Store, extract: bool = True
+) -> tuple[Episode, int]:
     episode = episode_from_json(path)
     if episode.project_path is None and config.project_root is not None:
         episode.project_path = str(config.project_root)

@@ -29,7 +29,9 @@ def test_discover_release_artifacts_returns_expected_specs(tmp_path: Path) -> No
 def test_discover_release_artifacts_requires_exactly_one_wheel(tmp_path: Path) -> None:
     (tmp_path / "muscle_memory-0.8.0.tar.gz").write_text("sdist", encoding="utf-8")
 
-    with pytest.raises(ValueError, match=r"Expected exactly one wheel for version 0.8.0 in .+; found 0"):
+    with pytest.raises(
+        ValueError, match=r"Expected exactly one wheel for version 0.8.0 in .+; found 0"
+    ):
         discover_release_artifacts(tmp_path, "0.8.0")
 
 
@@ -37,7 +39,9 @@ def test_discover_release_artifacts_requires_exactly_one_sdist(tmp_path: Path) -
     (tmp_path / "muscle_memory-0.8.0-py3-none-any.whl").write_text("wheel", encoding="utf-8")
     (tmp_path / "muscle_memory-0.8.0.post1.tar.gz").write_text("sdist-b", encoding="utf-8")
 
-    with pytest.raises(ValueError, match=r"Expected exactly one sdist for version 0.8.0 in .+; found 0"):
+    with pytest.raises(
+        ValueError, match=r"Expected exactly one sdist for version 0.8.0 in .+; found 0"
+    ):
         discover_release_artifacts(tmp_path, "0.8.0")
 
 

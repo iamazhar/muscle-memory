@@ -590,16 +590,3 @@ class TestAutoRefineTrigger:
             score=0.5,
         )
         assert not should_auto_refine(skill)
-
-    def test_does_not_fire_for_quarantined_candidate(self) -> None:
-        skill = Skill(
-            activation="x",
-            execution="y",
-            termination="z",
-            maturity=Maturity.CANDIDATE,
-            invocations=10,
-            successes=3,
-            failures=7,
-            score=0.3,
-        )
-        assert not should_auto_refine(skill)

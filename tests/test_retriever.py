@@ -108,7 +108,9 @@ def test_retriever_filters_obviously_unrelated_prompt(tmp_db: Store, sample_conf
     assert retriever.last_diagnostics.lexical_prefilter_skipped is True
 
 
-def test_retriever_skips_embedding_for_obvious_no_match(tmp_db: Store, sample_config: Config) -> None:
+def test_retriever_skips_embedding_for_obvious_no_match(
+    tmp_db: Store, sample_config: Config
+) -> None:
     embedder = FakeEmbedder()
     skill = Skill(
         activation="When Kubernetes pods are CrashLoopBackOff in production",
@@ -159,14 +161,17 @@ def test_retriever_keeps_strong_matches_without_lexical_overlap(
     tmp_db.add_skill(skill, embedding=embedder.embed_one(skill.activation))
 
     retriever = Retriever(tmp_db, embedder, sample_config)
-    with patch.object(
-        retriever,
-        "_passes_lexical_prefilter",
-        return_value=True,
-    ), patch.object(
-        tmp_db,
-        "search_skills_by_embedding",
-        return_value=[(skill, 0.5)],
+    with (
+        patch.object(
+            retriever,
+            "_passes_lexical_prefilter",
+            return_value=True,
+        ),
+        patch.object(
+            tmp_db,
+            "search_skills_by_embedding",
+            return_value=[(skill, 0.5)],
+        ),
     ):
         hits = retriever.retrieve("mysterious canary rollout procedure")
 

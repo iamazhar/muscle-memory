@@ -52,6 +52,11 @@ app.add_typer(hook_app, name="hook", hidden=True)
 eval_app = typer.Typer(help="Evaluate outcome detection, retrieval, and skill impact.")
 app.add_typer(eval_app, name="eval")
 
+simulate_app = typer.Typer(
+    help="Synthetic dogfooding — drive skills through scoring without real sessions."
+)
+app.add_typer(simulate_app, name="simulate")
+
 
 # ----------------------------------------------------------------------
 # helpers
@@ -101,11 +106,7 @@ def _current_worktree_state(repo_root: Path | None) -> tuple[bool | None, str | 
         )
     except (OSError, subprocess.CalledProcessError):
         return None, None
-    status_lines = [
-        line
-        for line in result.stdout.splitlines()
-        if line[3:] != "benchmark-run.json"
-    ]
+    status_lines = [line for line in result.stdout.splitlines() if line[3:] != "benchmark-run.json"]
     status = "\n".join(status_lines)
     if status_lines:
         status += "\n"
@@ -257,7 +258,9 @@ def init(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
-    settings_display = str(report.settings_path) if report.settings_path is not None else "(not used)"
+    settings_display = (
+        str(report.settings_path) if report.settings_path is not None else "(not used)"
+    )
     next_step = (
         "Next: use your harness as usual. Optionally seed with [bold]mm bootstrap[/bold]."
         if harness == "claude-code"
@@ -525,12 +528,72 @@ def jobs_retry_failed() -> None:
         return
 
     for job in failed_jobs:
-        store.update_job_status(job.id, status=JobStatus.PENDING, attempts=job.attempts + 1, error=None)
+        store.update_job_status(
+            job.id, status=JobStatus.PENDING, attempts=job.attempts + 1, error=None
+        )
         updated = store.get_job(job.id)
         assert updated is not None
         _spawn_job_retry(updated, cfg)
 
     console.print(f"[green]Requeued {len(failed_jobs)} failed job(s).[/green]")
+
+
+@jobs_app.command("delete")
+def jobs_delete(
+    job_id: str = typer.Argument(..., help="Job id or prefix."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip the confirmation prompt for non-failed jobs.",
+    ),
+) -> None:
+    """Delete a tracked background job. Useful for jobs whose underlying
+    episode or context is gone — e.g. auth-failed extractions that will
+    never succeed on retry."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    job = _resolve_job(store, job_id)
+
+    # Only failed jobs are safe to delete silently. Anything else risks
+    # losing work in flight (pending/running) or audit history (succeeded).
+    if job.status is not JobStatus.FAILED and not force:
+        console.print(
+            f"[yellow]Refusing to delete {job.status.value} job "
+            f"{job.id[:8]}. Re-run with --force to override.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    removed = store.delete_job(job.id)
+    if removed:
+        console.print(f"[green]Deleted {job.kind.value} job {job.id[:8]}.[/green]")
+    else:
+        console.print(f"[red]Job {job.id[:8]} could not be deleted.[/red]")
+        raise typer.Exit(1)
+
+
+@jobs_app.command("purge-failed")
+def jobs_purge_failed(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the interactive confirmation."),
+) -> None:
+    """Delete every failed tracked job. For the 'mark dead' workflow when
+    retries are not worth attempting (e.g. permanent auth errors)."""
+    cfg = _load_config()
+    store = _open_store(cfg)
+    failed_jobs = store.list_jobs(limit=None, status=JobStatus.FAILED)
+    if not failed_jobs:
+        console.print("[green]No failed jobs to purge.[/green]")
+        return
+
+    if not yes:
+        console.print(f"[yellow]About to delete {len(failed_jobs)} failed job(s).[/yellow]")
+        confirm = typer.confirm("Proceed?", default=False)
+        if not confirm:
+            console.print("Aborted.")
+            raise typer.Exit(1)
+
+    removed = store.delete_jobs_by_status(JobStatus.FAILED)
+    console.print(f"[green]Purged {removed} failed job(s).[/green]")
 
 
 def _spawn_job_retry(job: BackgroundJob, cfg: Config) -> None:
@@ -546,7 +609,6 @@ def _spawn_job_retry(job: BackgroundJob, cfg: Config) -> None:
         _fire_async_refinement(cfg.db_path, job_id=job.id)
         return
     raise RuntimeError(f"unsupported job kind: {job.kind.value}")
-
 
 
 def log(
@@ -832,8 +894,7 @@ def stats(
         attention_items += 1
     if failed_jobs:
         console.print(
-            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry"
-            "  (`mm jobs retry-failed`)"
+            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry  (`mm jobs retry-failed`)"
         )
         attention_items += 1
     if paused:
@@ -949,10 +1010,17 @@ def doctor(
         return
 
     status_line = "[yellow]paused[/yellow]" if paused else "[green]active[/green]"
-    console.print(Panel(f"[bold]database[/bold]  {cfg.db_path}\n[bold]status[/bold]    {status_line}", title="doctor"))
+    console.print(
+        Panel(
+            f"[bold]database[/bold]  {cfg.db_path}\n[bold]status[/bold]    {status_line}",
+            title="doctor",
+        )
+    )
     console.print(f"[bold]db exists[/bold]       {'yes' if db_exists else 'no'}")
     console.print(f"[bold]debug enabled[/bold]  {'yes' if cfg.debug_enabled else 'no'}")
-    console.print(f"[bold]debug log[/bold]      {debug_log_path} ({'present' if debug_log_exists else 'missing'})")
+    console.print(
+        f"[bold]debug log[/bold]      {debug_log_path} ({'present' if debug_log_exists else 'missing'})"
+    )
     console.print(
         f"[bold]jobs[/bold]           pending={counts['pending']} running={counts['running']} "
         f"failed={counts['failed']} succeeded={counts['succeeded']}"
@@ -970,9 +1038,7 @@ def doctor(
         )
     if recent_retrieval_decisions:
         latest = recent_retrieval_decisions[0]
-        console.print(
-            f"[bold]latest decision[/bold] {latest['event']} — {latest['why']}"
-        )
+        console.print(f"[bold]latest decision[/bold] {latest['event']} — {latest['why']}")
     if recommendations:
         console.print(Rule("Recommendations"))
         for recommendation in recommendations:
@@ -1380,7 +1446,9 @@ def ingest_transcript_cmd(
         "--prompt",
         help="Original user prompt for transcript formats that do not preserve it (for example codex-jsonl).",
     ),
-    extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract skills after ingesting."),
+    extract: bool = typer.Option(
+        True, "--extract/--no-extract", help="Extract skills after ingesting."
+    ),
 ) -> None:
     """Ingest a transcript from a supported harness format."""
     from muscle_memory.ingest import ingest_transcript_file
@@ -1405,7 +1473,9 @@ def ingest_transcript_cmd(
 @ingest_app.command("episode")
 def ingest_episode_cmd(
     episode_file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
-    extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract skills after ingesting."),
+    extract: bool = typer.Option(
+        True, "--extract/--no-extract", help="Extract skills after ingesting."
+    ),
 ) -> None:
     """Ingest a normalized episode JSON file."""
     from muscle_memory.ingest import ingest_episode_file
@@ -1612,7 +1682,12 @@ def eval_run(
     path = _Path(benchmark) if benchmark else cfg.db_path.parent / "benchmark.json"
 
     if not path.exists():
-        console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
+        # soft_wrap=True keeps long paths intact; Rich otherwise breaks them
+        # on dashes/dots which corrupts assertions that look for `path.name`.
+        console.print(
+            f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.",
+            soft_wrap=True,
+        )
         raise typer.Exit(1)
 
     result = run_benchmark(store, path, embedder=make_embedder(cfg))
@@ -1698,6 +1773,220 @@ def eval_report() -> None:
     # Impact
     impact = evaluate_impact(store)
     render_impact_eval(impact)
+
+
+# ----------------------------------------------------------------------
+# simulate — synthetic dogfooding
+# ----------------------------------------------------------------------
+
+
+def _resolve_sim_db_path(db: Path | None, *, inplace: bool, cfg: Config) -> Path:
+    """Decide which DB the simulator writes to.
+
+    Priority: explicit --db > --inplace (project DB) > synthetic default.
+    The synthetic default is ~/.claude/mm.sim.db — deliberately disjoint
+    from any project's real skill pool.
+    """
+    from muscle_memory.simulate import default_sim_db_path
+
+    if db is not None:
+        return db
+    if inplace:
+        return cfg.db_path
+    return default_sim_db_path()
+
+
+def _open_sim_store(db_path: Path) -> Store:
+    """Open-or-create the synthetic DB. Unlike `_open_store`, absence is fine."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # 16 dims matches DeterministicEmbedder and is cheap; embeddings are
+    # not produced by the simulator anyway, but the store needs a fixed dim.
+    return Store(db_path, embedding_dims=16)
+
+
+@simulate_app.command("scenarios")
+def simulate_scenarios(
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """List the built-in demo scenarios (and the skill ids they target)."""
+    from muscle_memory.simulate_fixtures import demo_scenarios, demo_skills
+
+    scenarios = demo_scenarios()
+    skills = {s.id: s for s in demo_skills()}
+
+    if as_json:
+        payload = [
+            {
+                "name": sc.name,
+                "prompt": sc.prompt,
+                "activated_skills": sc.activated_skills,
+                "success_rate": sc.success_rate,
+                "n": sc.n,
+                "tags": sc.tags,
+            }
+            for sc in scenarios
+        ]
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    table = Table(title=f"demo scenarios ({len(scenarios)})")
+    table.add_column("name", style="cyan")
+    table.add_column("skill", style="dim")
+    table.add_column("success", justify="right")
+    table.add_column("n", justify="right")
+    table.add_column("activation")
+    for sc in scenarios:
+        activation = " / ".join(
+            skills[sid].activation if sid in skills else "(unknown skill)"
+            for sid in sc.activated_skills
+        )
+        table.add_row(
+            sc.name,
+            ", ".join(sc.activated_skills),
+            f"{sc.success_rate:.0%}",
+            str(sc.n),
+            activation,
+        )
+    console.print(table)
+
+
+@simulate_app.command("seed")
+def simulate_seed(
+    db: Path | None = typer.Option(
+        None, "--db", help="DB path override; defaults to ~/.claude/mm.sim.db."
+    ),
+    inplace: bool = typer.Option(
+        False,
+        "--inplace",
+        help="Write into the project DB. Off by default to protect real skills.",
+    ),
+) -> None:
+    """Seed the synthetic DB with the built-in CANDIDATE skill fixtures."""
+    from muscle_memory.simulate import Simulator
+    from muscle_memory.simulate_fixtures import demo_skills
+
+    cfg = _load_config()
+    db_path = _resolve_sim_db_path(db, inplace=inplace, cfg=cfg)
+    store = _open_sim_store(db_path)
+    sim = Simulator(store)
+
+    seeded = sim.seed(demo_skills())
+    console.print(f"[green]Seeded {len(seeded)} skills[/green] into [bold]{db_path}[/bold].")
+    for skill_id in seeded:
+        console.print(f"  [dim]{skill_id}[/dim]")
+
+
+@simulate_app.command("run")
+def simulate_run(
+    db: Path | None = typer.Option(
+        None, "--db", help="DB path override; defaults to ~/.claude/mm.sim.db."
+    ),
+    inplace: bool = typer.Option(
+        False,
+        "--inplace",
+        help="Write into the project DB. Off by default to protect real skills.",
+    ),
+    seed_value: int | None = typer.Option(
+        None, "--seed", help="RNG seed for reproducible success/failure mixes."
+    ),
+    prune: bool | None = typer.Option(
+        None,
+        "--prune/--no-prune",
+        help=(
+            "Run the pruner after scenarios finish. "
+            "Defaults to True for the isolated sim DB, False with --inplace "
+            "(opt in explicitly to prune real project skills)."
+        ),
+    ),
+    fresh: bool = typer.Option(
+        False,
+        "--fresh",
+        help="Delete the simulate DB before running. Ignored with --inplace.",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Run the built-in demo scenarios end-to-end.
+
+    Pipeline per scenario: seed skills if missing → generate N episodes
+    with the declared success rate → credit each episode via the Scorer
+    → optionally prune. After a run, inspect end-state with `mm list`
+    against the same `--db`.
+    """
+    import random as _random
+
+    from muscle_memory.simulate import Simulator, default_sim_db_path
+    from muscle_memory.simulate_fixtures import demo_scenarios, demo_skills
+
+    cfg = _load_config()
+    db_path = _resolve_sim_db_path(db, inplace=inplace, cfg=cfg)
+
+    # Prune safety: the pruner will delete real skills (score <=0.2 at
+    # >=5 invocations). Auto-prune is only safe on the canonical sim DB —
+    # --inplace OR --db <project/.claude/mm.db> both target real skills
+    # and must require explicit --prune.
+    sim_default = default_sim_db_path()
+    is_sim_db = db_path.resolve() == sim_default.resolve()
+    effective_prune = is_sim_db if prune is None else prune
+    if effective_prune and not is_sim_db:
+        # stderr via typer.echo (not Rich console) so --json stdout stays pure.
+        typer.echo(
+            "Warning: --prune against a non-sim DB will remove any "
+            "skill whose score <=0.2 at >=5 invocations.",
+            err=True,
+        )
+
+    if fresh and not inplace and db_path.exists():
+        db_path.unlink()
+        # sqlite WAL sidecars
+        for suffix in ("-wal", "-shm"):
+            side = db_path.with_name(db_path.name + suffix)
+            if side.exists():
+                side.unlink()
+
+    store = _open_sim_store(db_path)
+    rng = _random.Random(seed_value) if seed_value is not None else _random.Random()
+    sim = Simulator(store, rng=rng)
+
+    sim.seed(demo_skills())
+    report = sim.run(demo_scenarios(), prune=effective_prune)
+
+    if as_json:
+        payload = {
+            "db_path": str(db_path),
+            "total_episodes": report.total_episodes,
+            "scenarios": [
+                {
+                    "name": r.name,
+                    "successes": r.successes,
+                    "failures": r.failures,
+                    "episodes_written": r.episodes_written,
+                }
+                for r in report.scenarios
+            ],
+            "pruned": (report.prune_report.removed if report.prune_report else []),
+            "kept": (report.prune_report.kept if report.prune_report else None),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    table = Table(title=f"simulation results — {db_path}")
+    table.add_column("scenario", style="cyan")
+    table.add_column("successes", justify="right", style="green")
+    table.add_column("failures", justify="right", style="red")
+    table.add_column("episodes", justify="right")
+    for r in report.scenarios:
+        table.add_row(
+            r.name,
+            str(r.successes),
+            str(r.failures),
+            str(r.episodes_written),
+        )
+    console.print(table)
+    console.print(f"\n[bold]{report.summary_line()}[/bold]")
+    console.print(
+        f"\nInspect with: [bold]mm list --limit 50[/bold] "
+        f"(set MM_DB_PATH={db_path} first, or use `sqlite3 {db_path}`)."
+    )
 
 
 # ----------------------------------------------------------------------

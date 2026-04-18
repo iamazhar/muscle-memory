@@ -165,9 +165,7 @@ class Config:
             harness=resolved_harness,
             log_level=_env("MM_LOG_LEVEL", "INFO") or "INFO",
             debug_enabled=(_env("MM_DEBUG", "0") or "0").lower() in {"1", "true", "yes", "on"},
-            auto_refine_enabled=(
-                _env("MM_AUTO_REFINE", "1") or "1"
-            ).lower()
+            auto_refine_enabled=(_env("MM_AUTO_REFINE", "1") or "1").lower()
             in {"1", "true", "yes", "on"},
         )
 

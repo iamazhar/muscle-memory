@@ -27,7 +27,9 @@ def _require_single(matches: list[Path], dist_dir: Path, kind: str, version: str
 
 def discover_release_artifacts(dist_dir: Path, version: str) -> list[ArtifactSpec]:
     wheel_matches = sorted(path for path in dist_dir.glob("*.whl") if f"-{version}-" in path.name)
-    sdist_matches = sorted(path for path in dist_dir.glob("*.tar.gz") if path.name.endswith(f"-{version}.tar.gz"))
+    sdist_matches = sorted(
+        path for path in dist_dir.glob("*.tar.gz") if path.name.endswith(f"-{version}.tar.gz")
+    )
 
     wheel = _require_single(wheel_matches, dist_dir, "wheel", version)
     sdist = _require_single(sdist_matches, dist_dir, "sdist", version)
@@ -41,9 +43,7 @@ def assert_version_output(output: str, version: str) -> None:
     actual = output.strip()
     expected_outputs = {version, f"muscle-memory {version}"}
     if actual not in expected_outputs:
-        raise ValueError(
-            f"Expected exact version {version!r} in CLI output; got {actual!r}"
-        )
+        raise ValueError(f"Expected exact version {version!r} in CLI output; got {actual!r}")
 
 
 def _sha256(path: Path) -> str:

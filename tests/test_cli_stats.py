@@ -13,7 +13,18 @@ from typer.testing import CliRunner
 from muscle_memory.cli import _ensure_utc, _relative_time, app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.models import BackgroundJob, Episode, JobKind, JobStatus, Maturity, Outcome, Scope, Skill, ToolCall, Trajectory
+from muscle_memory.models import (
+    BackgroundJob,
+    Episode,
+    JobKind,
+    JobStatus,
+    Maturity,
+    Outcome,
+    Scope,
+    Skill,
+    ToolCall,
+    Trajectory,
+)
 
 runner = CliRunner()
 
@@ -262,11 +273,13 @@ class TestStatsPopulated:
     def test_json_output(self, populated_store: tuple[Config, Store]) -> None:
         cfg, store = populated_store
         store.add_job(BackgroundJob(kind=JobKind.EXTRACT, payload={}, status=JobStatus.PENDING))
-        store.add_job(BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="boom"))
+        store.add_job(
+            BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="boom")
+        )
         (cfg.project_root / ".claude" / "mm.debug.log").write_text(
             '{"component":"stop","event":"spawned_extraction"}\n'
             '{"component":"user_prompt","event":"hits_returned","retrieve_ms":10.0,"embed_ms":3.0,"search_ms":1.0,"rerank_ms":0.5,"total_ms":11.0}\n',
-            encoding="utf-8"
+            encoding="utf-8",
         )
 
         with (
@@ -736,7 +749,9 @@ class TestAttentionMetrics:
     def test_next_actions_are_ordered_and_actionable(self, store_dir: Path) -> None:
         cfg = _make_config(store_dir)
         store = Store(cfg.db_path)
-        store.add_skill(_make_skill(activation="When pytest import fails", maturity=Maturity.CANDIDATE))
+        store.add_skill(
+            _make_skill(activation="When pytest import fails", maturity=Maturity.CANDIDATE)
+        )
         store.add_job(BackgroundJob(kind=JobKind.EXTRACT, payload={}, status=JobStatus.FAILED))
         (store_dir / ".claude" / "mm.paused").touch()
 

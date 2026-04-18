@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -10,8 +10,8 @@ from typer.testing import CliRunner
 from muscle_memory.cli import app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Scope, Skill
 from muscle_memory.hooks.stop import main as stop_main
+from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Scope, Skill
 
 runner = CliRunner()
 
@@ -29,7 +29,9 @@ def test_extract_episode_marks_job_failed_when_episode_missing(tmp_path: Path) -
     (store_dir / ".claude").mkdir()
     cfg = _make_config(store_dir)
     store = Store(cfg.db_path)
-    job = BackgroundJob(kind=JobKind.EXTRACT, payload={"episode_id": "missing"}, status=JobStatus.RUNNING)
+    job = BackgroundJob(
+        kind=JobKind.EXTRACT, payload={"episode_id": "missing"}, status=JobStatus.RUNNING
+    )
     store.add_job(job)
 
     with (

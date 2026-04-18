@@ -9,6 +9,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ---
 
+## [0.10.0] — 2026-04-17
+
+### Added
+
+- `mm simulate` synthetic dogfooding harness (Layer 1) — drives seeded
+  CANDIDATE skills through scoring, PROVEN promotion, and the
+  loser-prune path without real sessions or LLM calls. Subcommands:
+  `mm simulate scenarios`, `mm simulate seed`, `mm simulate run`.
+  Writes to `~/.claude/mm.sim.db` by default (disjoint from any project
+  DB). Supports `--db`, `--inplace`, `--seed`, `--prune/--no-prune`,
+  `--fresh`, and `--json` output.
+- `mm jobs delete <job-id>` and `mm jobs purge-failed` for explicit
+  lifecycle management of permanently-failed background jobs. Refuses
+  to delete non-failed jobs without `--force`; `purge-failed` requires
+  `--yes` or interactive confirmation.
+
+### Changed
+
+- `mm simulate run` auto-pruning is gated on the canonical sim DB path
+  (`~/.claude/mm.sim.db`), not the `--inplace` flag alone — `--db`
+  overrides targeting real project DBs now require explicit `--prune`.
+- Prune warning routed to stderr so `--json` stdout stays parseable.
+
+---
+
 ## [0.9.0] — 2026-04-14
 
 ### Added

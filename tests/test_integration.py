@@ -408,7 +408,9 @@ class TestUserPromptHook:
         assert entries[-1]["event"] == "no_db"
         assert entries[-1]["session_id"] == "debug-sess"
 
-    def test_matching_prompt_logs_retrieval_timings(self, seeded_store: Store, project_dir: Path) -> None:
+    def test_matching_prompt_logs_retrieval_timings(
+        self, seeded_store: Store, project_dir: Path
+    ) -> None:
         timed_cfg = Config(
             db_path=seeded_store.db_path,
             scope=Scope.PROJECT,
@@ -435,7 +437,11 @@ class TestUserPromptHook:
         assert rc == 0
         log_path = project_dir / ".claude" / "mm.debug.log"
         entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
-        timed = [e for e in entries if e.get("event") == "hits_returned" and e.get("session_id") == "timed-sess"]
+        timed = [
+            e
+            for e in entries
+            if e.get("event") == "hits_returned" and e.get("session_id") == "timed-sess"
+        ]
         assert timed
         assert "retrieve_ms" in timed[-1]
         assert "activation_record_ms" in timed[-1]
@@ -618,7 +624,7 @@ class TestScoringLoop:
         for idx in range(2):
             skill.invocations += 1
             skill.successes += 1
-            skill.source_episode_ids.append(f"ep{idx+1}")
+            skill.source_episode_ids.append(f"ep{idx + 1}")
             skill.recompute_score()
             skill.recompute_maturity()
 

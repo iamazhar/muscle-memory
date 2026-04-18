@@ -15,10 +15,10 @@ def test_ci_package_job_runs_release_preflight() -> None:
     assert "scripts/release_preflight.py" in text
 
 
-def test_ci_runs_eval_benchmark_gate() -> None:
+def test_ci_runs_release_benchmark_gate() -> None:
     text = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "mm eval run --json" in text
+    assert "scripts/release_benchmark_gate.py" in text
     assert "thresholds_passed" in text
     assert "failed_thresholds" in text
 

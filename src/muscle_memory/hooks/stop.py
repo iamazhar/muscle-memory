@@ -47,14 +47,20 @@ def main(argv: list[str] | None = None) -> int:
         adapter = get_harness(cfg.harness)
         session_id = adapter.extract_session_id(payload)
         cwd_path = adapter.extract_cwd(payload)
-        cwd = str(cwd_path) if cwd_path is not None else (raw_cwd if isinstance(raw_cwd, str) else None)
+        cwd = (
+            str(cwd_path)
+            if cwd_path is not None
+            else (raw_cwd if isinstance(raw_cwd, str) else None)
+        )
         transcript_path = adapter.extract_transcript_path(payload)
     except Exception:
         return 0
 
     if transcript_path is None:
         if cfg is not None:
-            log_debug_event(cfg, component="stop", event="missing_transcript_path", session_id=session_id)
+            log_debug_event(
+                cfg, component="stop", event="missing_transcript_path", session_id=session_id
+            )
         return 0
 
     if not transcript_path.exists():
@@ -141,15 +147,15 @@ def main(argv: list[str] | None = None) -> int:
         # auto-refinement is enabled, some skill meets the auto-refine
         # criteria (failures ≥ 2, score ≤ 0.6, invocations ≥ 5), and
         # no refine job is already pending or running.
-        if cfg.auto_refine_enabled and _any_skill_needs_refinement(store) and not _has_running_job(
-            store, JobKind.REFINE
+        if (
+            cfg.auto_refine_enabled
+            and _any_skill_needs_refinement(store)
+            and not _has_running_job(store, JobKind.REFINE)
         ):
             refine_job = BackgroundJob(kind=JobKind.REFINE, payload={})
             try:
                 store.add_job(refine_job)
             except sqlite3.IntegrityError:
-                refine_job = None
-            if refine_job is None:
                 return 0
             _fire_async_refinement(cfg.db_path, job_id=refine_job.id)
             log_debug_event(
@@ -164,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         # never break the user's shutdown path
         if cfg is not None:
-            log_debug_event(cfg, component="stop", event="hook_error", session_id=session_id, error=str(exc))
+            log_debug_event(
+                cfg, component="stop", event="hook_error", session_id=session_id, error=str(exc)
+            )
         return 0
 
     return 0

@@ -777,6 +777,18 @@ class Store:
         finally:
             conn.close()
 
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job by id. Returns True if a row was removed."""
+        with self.batch() as conn:
+            cur = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            return cur.rowcount > 0
+
+    def delete_jobs_by_status(self, status: JobStatus) -> int:
+        """Delete every job with the given status. Returns rows removed."""
+        with self.batch() as conn:
+            cur = conn.execute("DELETE FROM jobs WHERE status = ?", (status.value,))
+            return cur.rowcount
+
     def update_job_status(
         self,
         job_id: str,

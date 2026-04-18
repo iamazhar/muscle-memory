@@ -97,9 +97,11 @@ class TestHookResilience:
             "transcript_path": "/path/that/does/not/exist.jsonl",
         }
         stdin = StringIO(json.dumps(payload))
-        with patch.dict("os.environ", {"MM_DEBUG": "1"}, clear=False):
-            with patch("sys.stdin", stdin):
-                rc = stop_main()
+        with (
+            patch.dict("os.environ", {"MM_DEBUG": "1"}, clear=False),
+            patch("sys.stdin", stdin),
+        ):
+            rc = stop_main()
 
         assert rc == 0
         log_path = tmp_path / ".claude" / "mm.debug.log"
@@ -158,9 +160,12 @@ class TestHookResilience:
             "transcript_path": str(transcript),
         }
         stdin = StringIO(json.dumps(payload))
-        with patch("muscle_memory.hooks.stop.subprocess.Popen") as popen:
-            with patch("sys.stdin", stdin), patch("sys.stdout", StringIO()):
-                rc = stop_main()
+        with (
+            patch("muscle_memory.hooks.stop.subprocess.Popen") as popen,
+            patch("sys.stdin", stdin),
+            patch("sys.stdout", StringIO()),
+        ):
+            rc = stop_main()
 
         assert rc == 0
         assert popen.called

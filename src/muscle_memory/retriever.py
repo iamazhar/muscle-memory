@@ -128,7 +128,9 @@ def _content_tokens(text: str) -> set[str]:
     return tokens
 
 
-def _passes_relevance_gate(query_tokens: set[str], result: RetrievedSkill) -> tuple[bool, str | None]:
+def _passes_relevance_gate(
+    query_tokens: set[str], result: RetrievedSkill
+) -> tuple[bool, str | None]:
     """Keep strong semantic hits and explain why weaker ones were rejected."""
     if result.final_rank <= _STRONG_MATCH_MAX_RANK:
         return True, None
