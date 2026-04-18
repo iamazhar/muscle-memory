@@ -184,7 +184,10 @@ def load_release_benchmark(repo_root: Path) -> dict[str, object]:
     benchmark_path = default_benchmark_path
     benchmark_run_path = repo_root / "benchmark-run.json"
     if benchmark_run_path.exists():
-        data: dict[str, object] = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        try:
+            data: dict[str, object] = json.loads(benchmark_run_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
         cached_benchmark_path = _repo_local_benchmark_path(data.get("benchmark_path"), repo_root)
         cache_benchmark_path = cached_benchmark_path or default_benchmark_path
         if _benchmark_run_matches_repo(data, repo_root, cache_benchmark_path, cfg.db_path):
