@@ -38,6 +38,12 @@ def test_release_workflow_attests_before_tag_and_release_creation() -> None:
     assert attest_index < release_index
 
 
+def test_release_workflow_skips_attestations_for_private_repos() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "if: ${{ !github.event.repository.private }}" in text
+
+
 def test_development_docs_note_release_attestations() -> None:
     text = DEVELOPMENT_DOC.read_text(encoding="utf-8")
 

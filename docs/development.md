@@ -92,10 +92,10 @@ PYTHONPATH=src python -m muscle_memory retrieve "run the tests" --json
 
 The workflow validates version consistency, runs the test suite, builds the
 wheel and sdist, smoke-tests clean installs from both artifacts, generates
-GitHub artifact attestations for the built distributions, extracts the matching
-changelog section as release notes, pushes tag `vX.Y.Z`, can publish to PyPI,
-emits a `SHA256SUMS` manifest for the release artifacts, and creates a GitHub
-release.
+GitHub artifact attestations for the built distributions when the repository
+supports them, extracts the matching changelog section as release notes, pushes
+tag `vX.Y.Z`, can publish to PyPI, emits a `SHA256SUMS` manifest for the
+release artifacts, and creates a GitHub release.
 
 If you also maintain the separate Homebrew tap, bump the formula there after
 the GitHub release is live so `brew update` can discover the new version.
