@@ -243,7 +243,12 @@ def test_cli_scenarios_json_valid() -> None:
 
 
 def test_cli_run_golden_path_promotes(tmp_path: Path) -> None:
-    """End-to-end: `mm simulate run --db ... --seed 0` produces a PROVEN skill."""
+    """End-to-end: `mm simulate run --db ... --seed 0` produces a PROVEN skill.
+
+    `--db <non-sim-path>` alone won't auto-prune (safety: that path could
+    be a real project DB). Pass `--prune` explicitly to exercise the
+    loser-prune path.
+    """
     import json as _json
 
     db_path = tmp_path / "mm.sim.db"
@@ -257,11 +262,14 @@ def test_cli_run_golden_path_promotes(tmp_path: Path) -> None:
             "--seed",
             "0",
             "--fresh",
+            "--prune",
             "--json",
         ],
     )
     assert result.exit_code == 0, result.output
-    payload = _json.loads(result.output)
+    # `.output` merges stderr (the prune warning on non-sim DBs) with stdout
+    # for legacy CliRunner compat; `.stdout` is pure JSON.
+    payload = _json.loads(result.stdout)
     assert payload["total_episodes"] == sum(s.n for s in demo_scenarios())
 
     store = Store(db_path, embedding_dims=16)
@@ -341,3 +349,69 @@ def test_cli_run_inplace_does_not_prune_by_default(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     # Pre-existing loser must still be present (prune did not run).
     assert store.get_skill("would-be-pruned") is not None
+
+
+def test_cli_run_db_override_does_not_auto_prune(tmp_path: Path) -> None:
+    """--db <any-non-sim-path> must NOT auto-prune without explicit --prune.
+
+    Codex P1 regression: previously the prune default was keyed to
+    `--inplace`, so `mm simulate run --db <project/.claude/mm.db>` with
+    no `--prune` flag would compute effective_prune=True and silently
+    remove real project skills.
+    """
+    db_path = tmp_path / "real.db"
+    store = Store(db_path, embedding_dims=16)
+    loser = _fixed_skill("would-be-pruned")
+    loser.successes = 0
+    loser.failures = 10
+    loser.invocations = 10
+    loser.score = 0.0
+    store.add_skill(loser)
+
+    # --db <tmp> without --inplace, without --prune. Must not prune.
+    result = runner.invoke(
+        app,
+        [
+            "simulate",
+            "run",
+            "--db",
+            str(db_path),
+            "--seed",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert store.get_skill("would-be-pruned") is not None
+
+
+def test_cli_run_json_stdout_is_pure_when_prune_warns(tmp_path: Path) -> None:
+    """Codex P2 regression: --json stdout must stay JSON-parseable even
+    when the prune warning fires.
+
+    With `--db <tmp> --prune --json`, we trip the warning ("pruning a
+    non-sim DB"). The warning must go to stderr; stdout must contain
+    only JSON.
+    """
+    import json as _json
+
+    db_path = tmp_path / "real.db"
+    result = runner.invoke(
+        app,
+        [
+            "simulate",
+            "run",
+            "--db",
+            str(db_path),
+            "--prune",
+            "--seed",
+            "0",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # Stdout must be pure JSON — parsing failure here = regression.
+    payload = _json.loads(result.stdout)
+    assert "total_episodes" in payload
+    # And the warning should have fired — on stderr.
+    assert "Warning" in result.stderr
+    assert "non-sim DB" in result.stderr

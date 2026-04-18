@@ -1909,19 +1909,25 @@ def simulate_run(
     """
     import random as _random
 
-    from muscle_memory.simulate import Simulator
+    from muscle_memory.simulate import Simulator, default_sim_db_path
     from muscle_memory.simulate_fixtures import demo_scenarios, demo_skills
 
     cfg = _load_config()
     db_path = _resolve_sim_db_path(db, inplace=inplace, cfg=cfg)
 
-    # Prune safety: in --inplace mode the pruner will delete *real* project
-    # skills whose score fell to <=0.2 with >=5 invocations. Require opt-in.
-    effective_prune = (not inplace) if prune is None else prune
-    if effective_prune and inplace:
-        console.print(
-            "[yellow]Warning: --prune with --inplace will remove any project "
-            "skill whose score <=0.2 at >=5 invocations.[/yellow]"
+    # Prune safety: the pruner will delete real skills (score <=0.2 at
+    # >=5 invocations). Auto-prune is only safe on the canonical sim DB —
+    # --inplace OR --db <project/.claude/mm.db> both target real skills
+    # and must require explicit --prune.
+    sim_default = default_sim_db_path()
+    is_sim_db = db_path.resolve() == sim_default.resolve()
+    effective_prune = is_sim_db if prune is None else prune
+    if effective_prune and not is_sim_db:
+        # stderr via typer.echo (not Rich console) so --json stdout stays pure.
+        typer.echo(
+            "Warning: --prune against a non-sim DB will remove any "
+            "skill whose score <=0.2 at >=5 invocations.",
+            err=True,
         )
 
     if fresh and not inplace and db_path.exists():

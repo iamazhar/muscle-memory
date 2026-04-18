@@ -42,30 +42,54 @@ def test_govern_dry_run_reports_actions(tmp_path: Path) -> None:
     )
     store.add_skill(skill)
     store.add_episode(
-        __import__("muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]).Episode(
+        __import__(
+            "muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]
+        ).Episode(
             user_prompt="test prompt",
-            trajectory=__import__("muscle_memory.models", fromlist=["Trajectory", "ToolCall"]).Trajectory(
-                tool_calls=[__import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(name="Bash", arguments={"command": "ls"}, result="ok")]
+            trajectory=__import__(
+                "muscle_memory.models", fromlist=["Trajectory", "ToolCall"]
+            ).Trajectory(
+                tool_calls=[
+                    __import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(
+                        name="Bash", arguments={"command": "ls"}, result="ok"
+                    )
+                ]
             ),
             outcome=__import__("muscle_memory.models", fromlist=["Outcome"]).Outcome.FAILURE,
             activated_skills=[skill.id],
         )
     )
     store.add_episode(
-        __import__("muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]).Episode(
+        __import__(
+            "muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]
+        ).Episode(
             user_prompt="test prompt",
-            trajectory=__import__("muscle_memory.models", fromlist=["Trajectory", "ToolCall"]).Trajectory(
-                tool_calls=[__import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(name="Bash", arguments={"command": "pwd"}, result="ok")]
+            trajectory=__import__(
+                "muscle_memory.models", fromlist=["Trajectory", "ToolCall"]
+            ).Trajectory(
+                tool_calls=[
+                    __import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(
+                        name="Bash", arguments={"command": "pwd"}, result="ok"
+                    )
+                ]
             ),
             outcome=__import__("muscle_memory.models", fromlist=["Outcome"]).Outcome.FAILURE,
             activated_skills=[skill.id],
         )
     )
     store.add_episode(
-        __import__("muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]).Episode(
+        __import__(
+            "muscle_memory.models", fromlist=["Episode", "Outcome", "ToolCall", "Trajectory"]
+        ).Episode(
             user_prompt="test prompt",
-            trajectory=__import__("muscle_memory.models", fromlist=["Trajectory", "ToolCall"]).Trajectory(
-                tool_calls=[__import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(name="Bash", arguments={"command": "echo ok"}, result="ok")]
+            trajectory=__import__(
+                "muscle_memory.models", fromlist=["Trajectory", "ToolCall"]
+            ).Trajectory(
+                tool_calls=[
+                    __import__("muscle_memory.models", fromlist=["ToolCall"]).ToolCall(
+                        name="Bash", arguments={"command": "echo ok"}, result="ok"
+                    )
+                ]
             ),
             outcome=__import__("muscle_memory.models", fromlist=["Outcome"]).Outcome.FAILURE,
             activated_skills=[skill.id],
@@ -104,11 +128,14 @@ def test_govern_apply_demotes_skill(tmp_path: Path) -> None:
     )
     store.add_skill(skill)
     from muscle_memory.models import Episode, Outcome, ToolCall, Trajectory
+
     for cmd in ["ls", "pwd", "echo ok"]:
         store.add_episode(
             Episode(
                 user_prompt="test prompt",
-                trajectory=Trajectory(tool_calls=[ToolCall(name="Bash", arguments={"command": cmd}, result="ok")]),
+                trajectory=Trajectory(
+                    tool_calls=[ToolCall(name="Bash", arguments={"command": cmd}, result="ok")]
+                ),
                 outcome=Outcome.FAILURE,
                 activated_skills=[skill.id],
             )

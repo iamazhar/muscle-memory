@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import hashlib
 import json
-from pathlib import Path
 import subprocess
+from dataclasses import asdict
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -15,8 +15,7 @@ import muscle_memory.release_preflight as release_preflight
 from muscle_memory.cli import app
 from muscle_memory.config import Config
 from muscle_memory.db import Store
-from muscle_memory.eval.benchmark import BenchmarkRunResult
-from muscle_memory.eval.benchmark import build_benchmark
+from muscle_memory.eval.benchmark import BenchmarkRunResult, build_benchmark
 from muscle_memory.models import Episode, Outcome, Scope, Skill, ToolCall, Trajectory
 from muscle_memory.release_preflight import (
     distribution_paths,
@@ -39,9 +38,11 @@ def test_distribution_paths_ignores_non_distribution_files(tmp_path: Path) -> No
     assert distribution_paths("0.8.0", tmp_path) == [wheel, sdist]
 
 
-def _write_repo_fixture(tmp_path: Path, *, version: str = "0.8.0", changelog_version: str = "0.8.0") -> None:
+def _write_repo_fixture(
+    tmp_path: Path, *, version: str = "0.8.0", changelog_version: str = "0.8.0"
+) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        f"[project]\nname = \"muscle-memory\"\nversion = \"{version}\"\n",
+        f'[project]\nname = "muscle-memory"\nversion = "{version}"\n',
         encoding="utf-8",
     )
     package_dir = tmp_path / "src" / "muscle_memory"
@@ -95,7 +96,9 @@ def test_validate_release_metadata_accepts_matching_files(tmp_path: Path) -> Non
 def test_validate_release_metadata_rejects_version_mismatch(tmp_path: Path) -> None:
     _write_repo_fixture(tmp_path, version="0.8.1", changelog_version="0.8.0")
 
-    with pytest.raises(ValueError, match=r"pyproject.toml version '0.8.1' does not match requested version '0.8.0'"):
+    with pytest.raises(
+        ValueError, match=r"pyproject.toml version '0.8.1' does not match requested version '0.8.0'"
+    ):
         validate_release_metadata("0.8.0", tmp_path)
 
 
@@ -166,7 +169,11 @@ def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monk
     data["db_sha256"] = hashlib.sha256(b"db\n").hexdigest()
     (tmp_path / "benchmark-run.json").write_text(json.dumps(data) + "\n", encoding="utf-8")
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head",
+        lambda repo_root: "abc123",
+        raising=False,
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_worktree_state",
         lambda repo_root: (True, hashlib.sha256(b"").hexdigest()),
@@ -178,8 +185,13 @@ def test_run_release_preflight_uses_repo_benchmark_run_json(tmp_path: Path, monk
         raising=False,
     )
     monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
-    monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
-    monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.write_release_checksums",
+        lambda version, dist_dir: dist_dir / "SHA256SUMS",
+    )
 
     run_release_preflight("0.8.0", tmp_path)
 
@@ -211,7 +223,9 @@ def test_run_release_preflight_falls_back_to_recomputing_benchmark(
         Episode(
             user_prompt="run tests",
             trajectory=Trajectory(
-                tool_calls=[ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")]
+                tool_calls=[
+                    ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")
+                ]
             ),
             outcome=Outcome.SUCCESS,
             activated_skills=[skill.id],
@@ -224,10 +238,17 @@ def test_run_release_preflight_falls_back_to_recomputing_benchmark(
     )
 
     monkeypatch.setattr("muscle_memory.release_preflight.Config.load", lambda **kwargs: config)
-    monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: _FakeEmbedder())
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.make_embedder", lambda cfg: _FakeEmbedder()
+    )
     monkeypatch.setattr("muscle_memory.release_preflight._run", _fake_release_build)
-    monkeypatch.setattr("muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None)
-    monkeypatch.setattr("muscle_memory.release_preflight.write_release_checksums", lambda version, dist_dir: dist_dir / "SHA256SUMS")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.verify_release_artifacts", lambda version, dist_dir: None
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.write_release_checksums",
+        lambda version, dist_dir: dist_dir / "SHA256SUMS",
+    )
 
     run_release_preflight("0.8.0", tmp_path)
 
@@ -263,15 +284,23 @@ def test_load_release_benchmark_ignores_stale_repo_benchmark_run(
         failed_thresholds=["avg_relevance"],
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123", raising=False)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head",
+        lambda repo_root: "abc123",
+        raising=False,
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_worktree_state",
         lambda repo_root: (False, "dirty-now"),
         raising=False,
     )
-    monkeypatch.setattr("muscle_memory.release_preflight.Store", lambda db_path, embedding_dims: object())
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.Store", lambda db_path, embedding_dims: object()
+    )
     monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
-    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected
+    )
 
     data = load_release_benchmark(tmp_path)
 
@@ -311,8 +340,13 @@ def test_load_release_benchmark_uses_frozen_artifact_without_project_db(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda *args, **kwargs: pytest.fail("unexpected recompute"))
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.run_benchmark",
+        lambda *args, **kwargs: pytest.fail("unexpected recompute"),
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tree-sha",
@@ -360,7 +394,9 @@ def test_load_release_benchmark_rejects_stale_frozen_artifact_without_project_db
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "new-tree",
@@ -404,7 +440,9 @@ def test_load_release_benchmark_rejects_untracked_source_file_without_project_db
     )
     (tmp_path / "scratch.py").write_text("print('new helper')\n", encoding="utf-8")
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tracked-plus-untracked-tree",
@@ -436,7 +474,9 @@ def test_load_release_benchmark_rejects_stale_frozen_artifact_with_project_db(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "new-tree",
@@ -483,7 +523,9 @@ def test_load_release_benchmark_recompute_ignores_mm_db_env(
 
     monkeypatch.setattr("muscle_memory.release_preflight.Store", _FakeStore)
     monkeypatch.setattr("muscle_memory.release_preflight.make_embedder", lambda cfg: object())
-    monkeypatch.setattr("muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.run_benchmark", lambda store, path, embedder=None: expected
+    )
 
     data = load_release_benchmark(tmp_path)
 
@@ -527,7 +569,9 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
         cli_patch.setattr("muscle_memory.cli._load_config", lambda scope=None: config)
         cli_patch.setattr("muscle_memory.cli._open_store", lambda cfg: object())
         cli_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
-        cli_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        cli_patch.setattr(
+            "muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state")
+        )
         cli_patch.setattr(
             "muscle_memory.cli._current_source_tree_sha256",
             lambda repo_root, excluded_paths=None: "tree-sha",
@@ -537,14 +581,22 @@ def test_load_release_benchmark_accepts_mm_eval_run_json_output(
             lambda path: "db-sha" if path == db_path else "bench-sha",
         )
         cli_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: object())
-        cli_patch.setattr("muscle_memory.eval.benchmark.run_benchmark", lambda store, path, embedder=None: benchmark_result)
+        cli_patch.setattr(
+            "muscle_memory.eval.benchmark.run_benchmark",
+            lambda store, path, embedder=None: benchmark_result,
+        )
         result = runner.invoke(app, ["eval", "run", "--benchmark", str(benchmark_path), "--json"])
 
         assert result.exit_code == 0
         (tmp_path / "benchmark-run.json").write_text(result.output, encoding="utf-8")
 
-        preflight_patch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-        preflight_patch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        preflight_patch.setattr(
+            "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+        )
+        preflight_patch.setattr(
+            "muscle_memory.release_preflight._current_worktree_state",
+            lambda repo_root: (True, "clean-state"),
+        )
         preflight_patch.setattr(
             "muscle_memory.release_preflight._current_source_tree_sha256",
             lambda repo_root, excluded_paths=None: "tree-sha",
@@ -592,7 +644,9 @@ def test_load_release_benchmark_accepts_custom_repo_local_benchmark_artifact(
         Episode(
             user_prompt="run tests",
             trajectory=Trajectory(
-                tool_calls=[ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")]
+                tool_calls=[
+                    ToolCall(name="Bash", arguments={"command": "pytest"}, result="5 passed")
+                ]
             ),
             outcome=Outcome.SUCCESS,
             activated_skills=[skill.id],
@@ -605,8 +659,12 @@ def test_load_release_benchmark_accepts_custom_repo_local_benchmark_artifact(
         build_patch.setattr("muscle_memory.cli._load_config", lambda scope=None: config)
         build_patch.setattr("muscle_memory.cli._open_store", lambda cfg: store)
         build_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: _FakeEmbedder())
-        build_patch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
-        build_patch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        build_patch.setattr(
+            "muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path
+        )
+        build_patch.setattr(
+            "muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123"
+        )
         build_patch.setattr(
             "muscle_memory.eval.benchmark._current_source_tree_sha256",
             lambda repo_root, excluded_paths=None: "tree-sha",
@@ -623,7 +681,9 @@ def test_load_release_benchmark_accepts_custom_repo_local_benchmark_artifact(
         run_patch.setattr("muscle_memory.cli._open_store", lambda cfg: store)
         run_patch.setattr("muscle_memory.cli.make_embedder", lambda cfg: _FakeEmbedder())
         run_patch.setattr("muscle_memory.cli._current_repo_head", lambda repo_root: "abc123")
-        run_patch.setattr("muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state"))
+        run_patch.setattr(
+            "muscle_memory.cli._current_worktree_state", lambda repo_root: (True, "clean-state")
+        )
         run_patch.setattr(
             "muscle_memory.cli._current_source_tree_sha256",
             lambda repo_root, excluded_paths=None: "tree-sha",
@@ -636,8 +696,13 @@ def test_load_release_benchmark_accepts_custom_repo_local_benchmark_artifact(
     assert run_result.exit_code == 0
     (tmp_path / "benchmark-run.json").write_text(run_result.output, encoding="utf-8")
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (True, "clean-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tree-sha",
@@ -709,7 +774,9 @@ def test_load_release_benchmark_prefers_custom_artifact_over_default_when_cache_
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
 
     def _fake_source_tree(repo_root: Path, *, excluded_paths=None):
         if excluded_paths and custom_benchmark_path in excluded_paths:
@@ -726,7 +793,9 @@ def test_load_release_benchmark_prefers_custom_artifact_over_default_when_cache_
         "muscle_memory.release_preflight._current_source_tree_sha256",
         _fake_source_tree,
     )
-    monkeypatch.setattr("muscle_memory.release_preflight.summarize_benchmark_artifact", _fake_summarize)
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight.summarize_benchmark_artifact", _fake_summarize
+    )
 
     data = load_release_benchmark(tmp_path)
 
@@ -780,8 +849,13 @@ def test_load_release_benchmark_ignores_stale_db_identity(
             captured["db_path"] = db_path
             captured["embedding_dims"] = embedding_dims
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (True, "clean-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._file_sha256",
         lambda path: "current-db-sha" if path == db_path else "bench-sha",
@@ -848,8 +922,13 @@ def test_load_release_benchmark_ignores_dirty_worktree_cache(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (False, "dirty-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (False, "dirty-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tree-sha",
@@ -907,8 +986,13 @@ def test_load_release_benchmark_ignores_changed_dirty_file_content(
         def __init__(self, db_path: Path, *, embedding_dims: int) -> None:
             captured["db_path"] = db_path
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (False, "dirty-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (False, "dirty-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "new-dirty-tree",
@@ -993,8 +1077,13 @@ def test_load_release_benchmark_rejects_mismatched_explicit_benchmark_identity(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (True, "clean-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tree-sha",
@@ -1053,8 +1142,13 @@ def test_load_release_benchmark_falls_back_from_mismatched_benchmark_hash(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123")
-    monkeypatch.setattr("muscle_memory.release_preflight._current_worktree_state", lambda repo_root: (True, "clean-state"))
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "abc123"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_worktree_state",
+        lambda repo_root: (True, "clean-state"),
+    )
     monkeypatch.setattr(
         "muscle_memory.release_preflight._current_source_tree_sha256",
         lambda repo_root, excluded_paths=None: "tree-sha",

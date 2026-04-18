@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -305,8 +305,12 @@ class TestBenchmark:
         )
         store.add_episode(episode)
 
-        monkeypatch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
-        monkeypatch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path
+        )
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123"
+        )
         monkeypatch.setattr(
             "muscle_memory.eval.benchmark._current_source_tree_sha256",
             lambda repo_root, excluded_paths=None: "tree-sha",
@@ -322,7 +326,6 @@ class TestBenchmark:
         self, store, tmp_path, monkeypatch
     ):
         import muscle_memory.eval.benchmark as benchmark_module
-
         from muscle_memory.eval.benchmark import build_benchmark
 
         skill = _make_skill(execution="1. Run `pytest`")
@@ -350,8 +353,12 @@ class TestBenchmark:
                 return _Result(rel_output)
             return _Result(b"tracked.py\0")
 
-        monkeypatch.setattr("muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path)
-        monkeypatch.setattr("muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123")
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark.find_project_root", lambda start=None: tmp_path
+        )
+        monkeypatch.setattr(
+            "muscle_memory.eval.benchmark._current_repo_head", lambda repo_root: "abc123"
+        )
         monkeypatch.setattr(benchmark_module.subprocess, "run", _fake_run)
 
         _, first_path = build_benchmark(store, output_path=output_path)
@@ -403,7 +410,6 @@ class TestBenchmark:
         self, store, tmp_path, monkeypatch
     ):
         import muscle_memory.eval.benchmark as benchmark_module
-
         from muscle_memory.eval.benchmark import build_benchmark
 
         first_skill = _make_skill(execution="1. Run `pytest`")
@@ -649,7 +655,9 @@ def test_eval_run_json_reports_payload_and_exit_code(
             side_effect=lambda path: "db-sha" if path == db_path else "bench-sha",
         ),
         patch("muscle_memory.cli.make_embedder", side_effect=_fake_make_embedder),
-        patch("muscle_memory.eval.benchmark.run_benchmark", return_value=benchmark_result) as mock_run,
+        patch(
+            "muscle_memory.eval.benchmark.run_benchmark", return_value=benchmark_result
+        ) as mock_run,
     ):
         result = runner.invoke(
             app,
@@ -743,4 +751,6 @@ def test_eval_build_uses_embedder_for_benchmark_generation(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert captured["config"] is config
-    mock_build.assert_called_once_with(fake_store, embedder=fake_embedder, output_path=benchmark_path)
+    mock_build.assert_called_once_with(
+        fake_store, embedder=fake_embedder, output_path=benchmark_path
+    )

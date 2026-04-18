@@ -18,7 +18,9 @@ from muscle_memory.models import Scope
 runner = CliRunner()
 
 
-CODEX_USER_PROMPT = "Update the OrbitOps hero so it sounds more decisive, then run the local checks."
+CODEX_USER_PROMPT = (
+    "Update the OrbitOps hero so it sounds more decisive, then run the local checks."
+)
 CODEX_AGENT_PROMPT = (
     "I’m updating the OrbitOps hero so it sounds more decisive, then I’ll run the local checks "
     "so we can confirm nothing regressed."
@@ -93,7 +95,9 @@ def _write_codex_transcript(path: Path) -> None:
     path.write_text("\n".join(json.dumps(event) for event in events), encoding="utf-8")
 
 
-def test_episode_from_codex_transcript_extracts_meaningful_signal_with_prompt_override(tmp_path: Path) -> None:
+def test_episode_from_codex_transcript_extracts_meaningful_signal_with_prompt_override(
+    tmp_path: Path,
+) -> None:
     transcript = tmp_path / "codex-task.jsonl"
     _write_codex_transcript(transcript)
 
@@ -122,7 +126,9 @@ def test_episode_from_codex_transcript_rejects_low_signal_logs(tmp_path: Path) -
             [
                 json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
                 json.dumps({"type": "turn.started"}),
-                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}),
+                json.dumps(
+                    {"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}
+                ),
             ]
         ),
         encoding="utf-8",

@@ -36,7 +36,6 @@ def test_doctor_handles_missing_db(tmp_path: Path) -> None:
     assert data["debug_enabled"] is False
 
 
-
 def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     store_dir = tmp_path
     claude_dir = store_dir / ".claude"
@@ -44,7 +43,9 @@ def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     cfg = _make_config(store_dir, debug_enabled=True)
     store = Store(cfg.db_path)
     store.add_job(BackgroundJob(kind=JobKind.EXTRACT, payload={}, status=JobStatus.PENDING))
-    store.add_job(BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="boom"))
+    store.add_job(
+        BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="boom")
+    )
     log_path = claude_dir / "mm.debug.log"
     log_path.write_text(
         '{"event":"spawned_extraction","component":"stop"}\n'
@@ -68,7 +69,10 @@ def test_doctor_reports_jobs_and_debug_log(tmp_path: Path) -> None:
     assert data["retrieval_telemetry"]["avg_total_ms"] == 6.6
     assert len(data["recent_retrieval_decisions"]) == 2
     assert data["recent_retrieval_decisions"][0]["event"] == "hits_returned"
-    assert data["recent_retrieval_decisions"][1]["why"] == "weak semantic hit without lexical corroboration"
+    assert (
+        data["recent_retrieval_decisions"][1]["why"]
+        == "weak semantic hit without lexical corroboration"
+    )
 
 
 def test_doctor_maps_lexical_prefilter_skip_reason(tmp_path: Path) -> None:
