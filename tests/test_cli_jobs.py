@@ -76,9 +76,13 @@ def test_jobs_retry_failed_requeues_all_failed_jobs(tmp_path: Path) -> None:
     (store_dir / ".claude").mkdir()
     cfg = _make_config(store_dir)
     store = Store(cfg.db_path)
-    failed_a = BackgroundJob(kind=JobKind.EXTRACT, payload={"episode_id": "ep-1"}, status=JobStatus.FAILED, error="boom")
+    failed_a = BackgroundJob(
+        kind=JobKind.EXTRACT, payload={"episode_id": "ep-1"}, status=JobStatus.FAILED, error="boom"
+    )
     failed_b = BackgroundJob(kind=JobKind.REFINE, payload={}, status=JobStatus.FAILED, error="oops")
-    ok = BackgroundJob(kind=JobKind.EXTRACT, payload={"episode_id": "ep-2"}, status=JobStatus.SUCCEEDED)
+    ok = BackgroundJob(
+        kind=JobKind.EXTRACT, payload={"episode_id": "ep-2"}, status=JobStatus.SUCCEEDED
+    )
     store.add_job(failed_a)
     store.add_job(failed_b)
     store.add_job(ok)
@@ -95,3 +99,142 @@ def test_jobs_retry_failed_requeues_all_failed_jobs(tmp_path: Path) -> None:
     assert store.get_job(failed_a.id).status is JobStatus.PENDING
     assert store.get_job(failed_b.id).status is JobStatus.PENDING
     assert store.get_job(ok.id).status is JobStatus.SUCCEEDED
+
+
+def test_jobs_delete_removes_failed_job(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+    job = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "ep-1"},
+        status=JobStatus.FAILED,
+        error="auth",
+    )
+    store.add_job(job)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["jobs", "delete", job.id])
+
+    assert result.exit_code == 0, result.output
+    assert store.get_job(job.id) is None
+
+
+def test_jobs_delete_refuses_pending_without_force(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+    job = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "ep-1"},
+        status=JobStatus.PENDING,
+    )
+    store.add_job(job)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["jobs", "delete", job.id])
+
+    assert result.exit_code == 1
+    assert store.get_job(job.id) is not None
+
+    # --force overrides the safety check
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["jobs", "delete", job.id, "--force"])
+    assert result.exit_code == 0, result.output
+    assert store.get_job(job.id) is None
+
+
+def test_jobs_purge_failed_removes_only_failed(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+    failed_a = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "a"},
+        status=JobStatus.FAILED,
+        error="boom",
+    )
+    failed_b = BackgroundJob(
+        kind=JobKind.REFINE,
+        payload={},
+        status=JobStatus.FAILED,
+        error="oops",
+    )
+    ok = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "b"},
+        status=JobStatus.SUCCEEDED,
+    )
+    pending = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "c"},
+        status=JobStatus.PENDING,
+    )
+    for j in (failed_a, failed_b, ok, pending):
+        store.add_job(j)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["jobs", "purge-failed", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    # failed gone
+    assert store.get_job(failed_a.id) is None
+    assert store.get_job(failed_b.id) is None
+    # untouched
+    assert store.get_job(ok.id) is not None
+    assert store.get_job(pending.id) is not None
+
+
+def test_jobs_purge_failed_aborts_on_no_confirmation(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+    failed = BackgroundJob(
+        kind=JobKind.EXTRACT,
+        payload={"episode_id": "a"},
+        status=JobStatus.FAILED,
+        error="boom",
+    )
+    store.add_job(failed)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        # Answer "n" to the confirmation prompt.
+        result = runner.invoke(app, ["jobs", "purge-failed"], input="n\n")
+
+    assert result.exit_code == 1
+    assert store.get_job(failed.id) is not None
+
+
+def test_jobs_purge_failed_is_noop_when_none(tmp_path: Path) -> None:
+    store_dir = tmp_path
+    (store_dir / ".claude").mkdir()
+    cfg = _make_config(store_dir)
+    store = Store(cfg.db_path)
+
+    with (
+        patch("muscle_memory.cli._load_config", return_value=cfg),
+        patch("muscle_memory.cli._open_store", return_value=store),
+    ):
+        result = runner.invoke(app, ["jobs", "purge-failed", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "No failed jobs" in result.output
