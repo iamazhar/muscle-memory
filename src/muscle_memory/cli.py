@@ -1682,7 +1682,12 @@ def eval_run(
     path = _Path(benchmark) if benchmark else cfg.db_path.parent / "benchmark.json"
 
     if not path.exists():
-        console.print(f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.")
+        # soft_wrap=True keeps long paths intact; Rich otherwise breaks them
+        # on dashes/dots which corrupts assertions that look for `path.name`.
+        console.print(
+            f"[red]No benchmark at {path}.[/red] Run [bold]mm eval build[/bold] first.",
+            soft_wrap=True,
+        )
         raise typer.Exit(1)
 
     result = run_benchmark(store, path, embedder=make_embedder(cfg))
