@@ -9,7 +9,7 @@
 </p>
 
 
-`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. For v1, the release story is Claude Code-first: Claude Code is the supported runtime adapter we prove in CI and release docs first, while the memory engine can also run in a generic harness mode with explicit `mm retrieve` and offline transcript ingest.
+`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. Claude Code has the deepest runtime integration today, and Codex is also supported for setup, explicit retrieval, and offline transcript ingest.
 
 Inspired by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869), but purpose-built for coding agents.
 
@@ -58,10 +58,14 @@ uv tool install 'muscle-memory[openai]'
 # in your project
 cd ~/code/my-project
 
-# Claude Code runtime integration
-mm init --harness claude-code
+# choose Claude Code or Codex in your terminal
+mm init
 
-# or: generic harness mode for other agents/orchestrators
+# or: explicit harness selection for scripts/CI
+mm init --harness claude-code
+mm init --harness codex
+
+# generic harness mode for other agents/orchestrators
 mm init --harness generic
 
 # optional: bootstrap from recent Claude Code history
@@ -111,12 +115,17 @@ project-local `.claude` anchor so skills stay isolated from the repo root.
 
 ## Runtime adapters and authentication
 
+Run `mm init` in a real terminal to choose between Claude Code and Codex. The selected harness is saved in `.claude/mm.json` for future project-local commands. In scripts or CI, pass `--harness` explicitly.
+
 For Claude Code runtime integration, `mm init --harness claude-code` installs hooks into `.claude/settings.json` and uses the existing Claude Code session to capture prompts/transcripts.
 
-If you are using another harness, initialize with `mm init --harness generic` and use:
+For Codex, `mm init --harness codex` initializes the project database and saved harness config, but does not install automatic prompt hooks yet. Use:
+- `mm retrieve ...` for explicit retrieval before prompting Codex
+- `mm ingest transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
+
+For other harnesses, initialize with `mm init --harness generic` and use:
 - `mm retrieve ...` for explicit retrieval before prompting your agent
 - `mm ingest transcript ...` or `mm ingest episode ...` for offline learning
-- Codex transcripts are supported via `mm ingest transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
 
 For extraction/refinement, the default LLM backend is still `claude-code`. If you prefer API-key-based extraction, set `MM_LLM_PROVIDER=openai` and `OPENAI_API_KEY=***`.
 

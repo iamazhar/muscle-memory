@@ -79,9 +79,11 @@ def test_testing_and_demo_docs_note_supported_surface_and_recovery() -> None:
     testing_text = TESTING_DOC.read_text(encoding="utf-8")
     demo_text = DEMO_DOC.read_text(encoding="utf-8")
 
-    assert "Claude Code-first" in testing_text
+    assert "Claude Code still has the deepest runtime coverage" in testing_text
+    assert "Codex is" in testing_text
     assert "recovery" in testing_text.lower()
-    assert "Claude Code-first" in demo_text
+    assert "deepest runtime integration" in demo_text
+    assert "Codex" in demo_text
     assert "mm doctor" in demo_text
     assert "mm review list" in demo_text
     assert "mm jobs retry-failed" in demo_text

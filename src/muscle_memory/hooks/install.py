@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from muscle_memory.config import Config
+from muscle_memory.config import Config, write_project_harness
 from muscle_memory.harness import InstallReport, get_harness, harness_names
 from muscle_memory.models import Scope
 
@@ -28,7 +28,10 @@ def install(
         get_harness(other_name).uninstall(cfg)
 
     adapter = get_harness(cfg.harness)
-    return adapter.install(cfg)
+    report = adapter.install(cfg)
+    if scope is Scope.PROJECT and cfg.project_root is not None:
+        write_project_harness(cfg.project_root, cfg.harness)
+    return report
 
 
 def uninstall(

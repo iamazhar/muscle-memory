@@ -5,8 +5,9 @@
 The goal is simple: give engineers a realistic surface where the product can be
 dogfooded immediately.
 
-For the v1 release story, this demo is still part of the Claude Code-first
-surface we support and verify. When a dogfood session drifts, start with
+This demo is part of the supported dogfood surface. Claude Code still has the
+deepest runtime integration here, and Codex can use the same project setup plus
+explicit retrieval and transcript ingest. When a dogfood session drifts, start with
 `mm doctor`, then use the usual recovery commands: `mm maint pause`,
 `mm review list`, `mm jobs retry-failed`, and `mm maint resume`.
 
@@ -25,6 +26,13 @@ python3 app.py
 
 Then initialize `muscle-memory` against the demo app.
 
+If you are using the interactive chooser in a terminal:
+
+```bash
+cd demo/orbitops
+mm init --scope project
+```
+
 If you are using Claude Code hooks directly:
 
 ```bash
@@ -32,9 +40,13 @@ cd demo/orbitops
 mm init --scope project --harness claude-code
 ```
 
-If you want the harness-agnostic path instead:
+If you want the Codex or harness-agnostic path instead:
 
 ```bash
+cd demo/orbitops
+mm init --scope project --harness codex
+mm retrieve "tighten the hero copy and rerun checks" --json
+
 cd demo/orbitops
 mm init --scope project --harness generic
 mm retrieve "tighten the hero copy and rerun checks" --json

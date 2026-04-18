@@ -29,10 +29,11 @@ def test_development_docs_note_release_preflight() -> None:
     assert "release preflight" in text.lower()
 
 
-def test_readme_calls_out_claude_code_first_release_story() -> None:
+def test_readme_calls_out_supported_harnesses_and_recovery() -> None:
     text = README.read_text(encoding="utf-8")
 
-    assert "Claude Code-first" in text
+    assert "Claude Code has the deepest runtime integration today" in text
+    assert "Codex is also supported" in text
     assert "mm doctor" in text
     assert "mm maint pause" in text
     assert "mm review list" in text
