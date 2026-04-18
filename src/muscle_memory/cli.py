@@ -291,18 +291,20 @@ def init(
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
-    settings_display = str(report.settings_path) if report.settings_path is not None else "(not used)"
+    settings_display = (
+        str(report.settings_path) if report.settings_path is not None else "(not used)"
+    )
     if selected_harness == "claude-code":
-        next_step = "Next: use Claude Code as usual. Optionally seed with [bold]mm bootstrap[/bold]."
+        next_step = (
+            "Next: use Claude Code as usual. Optionally seed with [bold]mm bootstrap[/bold]."
+        )
     elif selected_harness == "codex":
         next_step = (
             "Next: use Codex with [bold]mm retrieve[/bold] or transcript ingestion. "
             "Automatic prompt hooks are not installed for Codex yet."
         )
     else:
-        next_step = (
-            "Next: ingest transcripts or use [bold]mm retrieve[/bold] from your harness/orchestrator."
-        )
+        next_step = "Next: ingest transcripts or use [bold]mm retrieve[/bold] from your harness/orchestrator."
 
     console.print(
         Panel.fit(
