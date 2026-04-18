@@ -50,6 +50,7 @@ release sequence lives in [docs/release.md](release.md).
 If you want the lower-level package checks individually:
 
 ```bash
+uv run python scripts/release_benchmark_gate.py > benchmark-run.json
 uv build
 uv run python scripts/generate_release_checksums.py $(uv run python - <<'PY'
 import tomllib

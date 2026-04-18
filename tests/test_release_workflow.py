@@ -49,7 +49,7 @@ def test_release_workflow_mentions_release_checklist_and_gate() -> None:
 
     assert "docs/release.md" in text
     assert "release checklist" in text.lower()
-    assert "mm eval run --json" in text
+    assert "scripts/release_benchmark_gate.py" in text
     assert "tests/test_behavioral.py" in text
     assert 'CLAUDE_TESTS: "1"' in text
 
@@ -65,7 +65,7 @@ def test_release_checklist_doc_exists_and_lists_gate_steps() -> None:
     text = RELEASE_DOC.read_text(encoding="utf-8")
 
     assert "# Release Checklist" in text
-    assert "mm eval run --json" in text
+    assert "release_benchmark_gate.py" in text
     assert "release_preflight.py" in text
 
 

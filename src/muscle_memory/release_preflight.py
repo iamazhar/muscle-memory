@@ -164,28 +164,18 @@ def _benchmark_artifact_matches_repo(
     repo_root: Path,
     benchmark_path: Path,
 ) -> bool:
-    repo_head = data.get("repo_head")
     source_tree_sha256 = data.get("source_tree_sha256")
     current_source_tree_sha256 = _current_source_tree_sha256(
         repo_root,
         excluded_paths=[benchmark_path],
     )
-    current_repo_head = _current_repo_head(repo_root)
-    if (
-        not isinstance(repo_head, str)
-        or not isinstance(source_tree_sha256, str)
-        or current_source_tree_sha256 is None
-        or current_repo_head is None
-    ):
+    if not isinstance(source_tree_sha256, str) or current_source_tree_sha256 is None:
         return False
-    return repo_head == current_repo_head and source_tree_sha256 == current_source_tree_sha256
+    return source_tree_sha256 == current_source_tree_sha256
 
 
 def _benchmark_artifact_has_repo_provenance(data: dict[str, object]) -> bool:
-    return isinstance(data.get("repo_head"), str) and isinstance(
-        data.get("source_tree_sha256"),
-        str,
-    )
+    return isinstance(data.get("source_tree_sha256"), str)
 
 
 def load_release_benchmark(repo_root: Path) -> dict[str, object]:
@@ -288,6 +278,10 @@ def run_release_preflight(version: str, repo_root: Path) -> None:
         write_release_checksums(version, dist_dir)
 
 
+def run_release_benchmark_gate(repo_root: Path) -> dict[str, object]:
+    return load_release_benchmark(repo_root)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1:
@@ -307,6 +301,22 @@ def main(argv: list[str] | None = None) -> int:
 
     print("Release preflight passed")
     return 0
+
+
+def benchmark_gate_main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args:
+        print("usage: release_benchmark_gate.py", file=sys.stderr)
+        return 1
+
+    try:
+        result = run_release_benchmark_gate(Path.cwd())
+    except (OSError, subprocess.CalledProcessError, ValueError, tomllib.TOMLDecodeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps(result, indent=2))
+    return 0 if result.get("thresholds_passed") else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

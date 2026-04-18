@@ -10,7 +10,7 @@
 3. Verify the release preflight for the target version:
    `uv run python scripts/release_preflight.py <version>`
 4. Run the benchmark gate and confirm it reports `"thresholds_passed": true`:
-   `uv run mm eval run --json > benchmark-run.json`
+   `uv run python scripts/release_benchmark_gate.py > benchmark-run.json`
    Then inspect `benchmark-run.json` for `failed_thresholds` if the gate fails.
 
 ## Recovery

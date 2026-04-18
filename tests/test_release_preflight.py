@@ -1093,6 +1093,100 @@ def test_load_release_benchmark_rejects_mismatched_explicit_benchmark_identity(
         load_release_benchmark(tmp_path)
 
 
+def test_load_release_benchmark_accepts_matching_source_tree_with_different_repo_head(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repo_head": "branch-head",
+                "source_tree_sha256": "tree-sha",
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.9,
+                        "adherence_score": 0.9,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "merge-head"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root, excluded_paths=None: "tree-sha",
+    )
+
+    data = load_release_benchmark(tmp_path)
+
+    assert data["thresholds_passed"] is True
+    assert data["failed_thresholds"] == []
+
+
+def test_run_release_benchmark_gate_uses_frozen_artifact_without_repo_db(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_repo_fixture(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    benchmark_path = tmp_path / ".claude" / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repo_head": "branch-head",
+                "source_tree_sha256": "tree-sha",
+                "entries": [
+                    {
+                        "skill_id": "skill1",
+                        "skill_activation": "When pytest fails",
+                        "episode_id": "ep1",
+                        "user_prompt": "run tests",
+                        "relevance_score": 0.9,
+                        "adherence_score": 0.9,
+                        "correctness_verdict": "correct",
+                        "correctness_confidence": "human",
+                        "outcome": "success",
+                        "scored_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_repo_head", lambda repo_root: "merge-head"
+    )
+    monkeypatch.setattr(
+        "muscle_memory.release_preflight._current_source_tree_sha256",
+        lambda repo_root, excluded_paths=None: "tree-sha",
+    )
+
+    data = release_preflight.run_release_benchmark_gate(tmp_path)
+
+    assert data["thresholds_passed"] is True
+    assert data["failed_thresholds"] == []
+
+
 def test_load_release_benchmark_falls_back_from_mismatched_benchmark_hash(
     tmp_path: Path,
     monkeypatch,
