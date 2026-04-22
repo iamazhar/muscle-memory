@@ -196,6 +196,18 @@ class TestInit:
         assert report.already_present == []
         assert not (project_dir / ".claude" / "settings.json").exists()
 
+    def test_codex_init_creates_db_and_persists_harness(self, project_dir: Path) -> None:
+        report = install(project_root=project_dir, harness="codex")
+
+        assert (project_dir / ".claude" / "mm.db").exists()
+        assert report.settings_path is None
+        assert report.installed_events == []
+        assert report.already_present == []
+        assert not (project_dir / ".claude" / "settings.json").exists()
+        config_path = project_dir / ".claude" / "mm.json"
+        assert config_path.exists()
+        assert json.loads(config_path.read_text())["harness"] == "codex"
+
     def test_switching_to_generic_removes_mm_hook_entries(self, project_dir: Path) -> None:
         install(project_root=project_dir, harness="claude-code")
 
@@ -217,6 +229,31 @@ class TestInit:
             ]
             assert "mm hook user-prompt" not in commands
             assert "mm hook stop" not in commands
+
+    def test_switching_to_codex_removes_mm_hook_entries(self, project_dir: Path) -> None:
+        install(project_root=project_dir, harness="claude-code")
+
+        report = install(project_root=project_dir, harness="codex")
+
+        assert report.settings_path is None
+        settings_path = project_dir / ".claude" / "settings.json"
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+            hooks = settings.get("hooks", {})
+            commands = [
+                hook["command"]
+                for groups in hooks.values()
+                if isinstance(groups, list)
+                for group in groups
+                if isinstance(group, dict)
+                for hook in (group.get("hooks") or [])
+                if isinstance(hook, dict) and "command" in hook
+            ]
+            assert "mm hook user-prompt" not in commands
+            assert "mm hook stop" not in commands
+        config_path = project_dir / ".claude" / "mm.json"
+        assert config_path.exists()
+        assert json.loads(config_path.read_text())["harness"] == "codex"
 
 
 # ----------------------------------------------------------------------

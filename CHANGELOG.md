@@ -9,6 +9,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ---
 
+## [0.11.0] — 2026-04-18
+
+### Added
+
+- Interactive `mm init` harness chooser for terminal use, with Claude Code
+  and Codex as first-class setup paths when `--harness` is omitted.
+- Project-local harness persistence in `.claude/mm.json` so later `mm`
+  commands reuse the selected harness without requiring `--harness` every time.
+
+### Changed
+
+- `mm init` now requires an explicit `--harness` in non-interactive contexts
+  such as scripts and CI instead of silently defaulting to Claude Code.
+- Setup docs and onboarding now present both Claude Code and Codex as
+  supported installation paths, while keeping runtime-hook expectations
+  explicit: live prompt hooks still only install for Claude Code.
+
+### Fixed
+
+- `mm init` no longer prompts for a harness before validating that the current
+  directory is actually a project when running in interactive terminals.
+
+---
+
 ## [0.10.0] — 2026-04-17
 
 ### Added

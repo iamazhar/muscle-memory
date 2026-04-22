@@ -2,7 +2,8 @@
 
 ## Test layers
 
-`muscle-memory` is covered by three layers of tests:
+`muscle-memory` is covered by several test layers. The table below highlights the
+core suites rather than serving as an exhaustive live count:
 
 | Suite | Count | Runtime | Requires |
 |---|---|---|---|
@@ -11,14 +12,17 @@
 | Edge cases (`test_edge_cases`) | 27 | ~500ms | Python deps (tests concurrency + 500-skill scale) |
 | Behavioral (`test_behavioral`) | 8 | ~60s | `claude` + `mm` on PATH, **OPT-IN** |
 
-Total: **99 passing tests** run by `pytest` in under a second. Behavioral
-tests are skipped by default because they spawn real Claude Code sessions.
+The exact suite count and runtime change as coverage grows. Use fresh `pytest`
+output for the current totals. Behavioral tests are skipped by default because
+they spawn real Claude Code sessions.
 
-## Claude Code-first v1
+## Harness coverage
 
-The v1 release story is Claude Code-first. The fast suites protect the core
-engine, but the behavioral suite is the release proof for the supported
-surface.
+The fast suites protect the shared engine plus harness-specific setup and
+ingest behavior. Claude Code still has the deepest runtime coverage, and the
+behavioral suite remains the release proof for that live hook path. Codex is
+covered in the fast suites for setup and transcript ingest, not for automatic
+prompt-hook injection.
 
 If a Claude Code session needs recovery, use the operator commands we rely on
 in the rest of the repo:

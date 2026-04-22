@@ -13,6 +13,7 @@ platformdirs.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,38 @@ def find_project_root(start: Path | None = None) -> Path | None:
 def global_data_dir() -> Path:
     """User-wide data directory for muscle-memory (e.g. ~/Library/Application Support/muscle-memory)."""
     return Path(user_data_dir(APP_NAME, appauthor=False))
+
+
+def project_config_path(project_root: Path | None) -> Path | None:
+    """Return the project-local muscle-memory config path when available."""
+    if project_root is None:
+        return None
+    return project_root / ".claude" / "mm.json"
+
+
+def load_project_harness(project_root: Path | None) -> str | None:
+    """Best-effort read of the persisted project harness."""
+    path = project_config_path(project_root)
+    if path is None or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    harness = payload.get("harness")
+    if isinstance(harness, str) and harness:
+        return harness
+    return None
+
+
+def write_project_harness(project_root: Path, harness: str) -> Path:
+    """Persist the selected harness for future project-local commands."""
+    path = project_config_path(project_root)
+    assert path is not None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"harness": harness}, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 @dataclass
@@ -145,7 +178,10 @@ class Config:
         if llm_provider.lower() == "openai":
             llm_api_key = _env("MM_LLM_API_KEY") or _env("OPENAI_API_KEY")
 
-        resolved_harness = harness or _env("MM_HARNESS", DEFAULT_HARNESS) or DEFAULT_HARNESS
+        project_harness = None
+        if resolved_scope is Scope.PROJECT:
+            project_harness = load_project_harness(project_root)
+        resolved_harness = harness or _env("MM_HARNESS") or project_harness or DEFAULT_HARNESS
 
         # embedder
         embedder = _env("MM_EMBEDDER", DEFAULT_EMBEDDER) or DEFAULT_EMBEDDER

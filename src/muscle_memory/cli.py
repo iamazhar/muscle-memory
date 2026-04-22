@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,11 +14,12 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.rule import Rule
 from rich.table import Table
 
 from muscle_memory import __version__
-from muscle_memory.config import DEFAULT_HARNESS, Config
+from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.eval.benchmark import _current_source_tree_sha256
@@ -65,6 +67,35 @@ app.add_typer(simulate_app, name="simulate")
 
 def _load_config(scope: Scope | None = None) -> Config:
     return Config.load(scope=scope)
+
+
+def _stdin_is_interactive() -> bool:
+    return sys.stdin.isatty()
+
+
+def _validate_init_scope(scope: Scope) -> None:
+    if scope is not Scope.PROJECT:
+        return
+    cfg = Config.load(scope=scope)
+    if cfg.project_root is None:
+        raise RuntimeError(
+            "Not inside a project (no .git or .claude found). Either `cd` into a project or use --scope global."
+        )
+
+
+def _resolve_init_harness(harness: str | None) -> str:
+    if harness:
+        return harness
+    if not _stdin_is_interactive():
+        raise RuntimeError(
+            "Pass --harness claude-code|codex|generic when running `mm init` non-interactively."
+        )
+    return Prompt.ask(
+        "Choose a harness",
+        choices=["claude-code", "codex"],
+        default="claude-code",
+        console=console,
+    )
 
 
 def _open_store(cfg: Config) -> Store:
@@ -240,10 +271,10 @@ def init(
         "-s",
         help="project (default) or global",
     ),
-    harness: str = typer.Option(
-        DEFAULT_HARNESS,
+    harness: str | None = typer.Option(
+        None,
         "--harness",
-        help="Runtime harness to integrate with (for example: claude-code or generic).",
+        help="Runtime harness to integrate with. Omit in a terminal to choose interactively.",
     ),
 ) -> None:
     """Set up muscle-memory for the current project.
@@ -253,24 +284,32 @@ def init(
     from muscle_memory.hooks.install import install as do_install
 
     try:
-        report = do_install(scope=scope, harness=harness)
-    except RuntimeError as e:
+        _validate_init_scope(scope)
+        selected_harness = _resolve_init_harness(harness)
+        report = do_install(scope=scope, harness=selected_harness)
+    except (RuntimeError, ValueError) as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None
 
     settings_display = (
         str(report.settings_path) if report.settings_path is not None else "(not used)"
     )
-    next_step = (
-        "Next: use your harness as usual. Optionally seed with [bold]mm bootstrap[/bold]."
-        if harness == "claude-code"
-        else "\nNext: ingest transcripts or use [bold]mm retrieve[/bold] from your harness/orchestrator."
-    )
+    if selected_harness == "claude-code":
+        next_step = (
+            "Next: use Claude Code as usual. Optionally seed with [bold]mm bootstrap[/bold]."
+        )
+    elif selected_harness == "codex":
+        next_step = (
+            "Next: use Codex with [bold]mm retrieve[/bold] or transcript ingestion. "
+            "Automatic prompt hooks are not installed for Codex yet."
+        )
+    else:
+        next_step = "Next: ingest transcripts or use [bold]mm retrieve[/bold] from your harness/orchestrator."
 
     console.print(
         Panel.fit(
             f"[green]muscle-memory initialized[/green]\n\n"
-            f"Harness: [bold]{harness}[/bold]\n"
+            f"Harness: [bold]{selected_harness}[/bold]\n"
             f"DB: [bold]{report.db_path}[/bold]\n"
             f"Settings: [bold]{settings_display}[/bold]\n"
             f"Installed hooks: {', '.join(report.installed_events) or '(none)'}\n"

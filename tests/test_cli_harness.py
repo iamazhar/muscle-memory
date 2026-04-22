@@ -51,6 +51,77 @@ def test_config_load_reads_harness_from_env(tmp_path: Path, monkeypatch) -> None
     assert cfg.harness == "generic"
 
 
+def test_config_load_reads_harness_from_project_config(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "mm.json").write_text(json.dumps({"harness": "codex"}), encoding="utf-8")
+
+    cfg = Config.load(start_dir=tmp_path)
+
+    assert cfg.harness == "codex"
+
+
+def test_config_env_harness_overrides_project_config(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "mm.json").write_text(
+        json.dumps({"harness": "claude-code"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MM_HARNESS", "codex")
+
+    cfg = Config.load(start_dir=tmp_path)
+
+    assert cfg.harness == "codex"
+
+
+def test_init_requires_explicit_harness_when_not_interactive(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with patch("muscle_memory.cli._stdin_is_interactive", return_value=False, create=True):
+        result = runner.invoke(app, ["init"])
+
+    assert result.exit_code == 1
+    assert "Pass --harness" in result.output
+
+
+def test_init_prompts_for_harness_when_interactive(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with patch("muscle_memory.cli._stdin_is_interactive", return_value=True, create=True):
+        result = runner.invoke(app, ["init"], input="codex\n")
+
+    assert result.exit_code == 0
+    assert "Harness: codex" in result.output
+    config_path = tmp_path / ".claude" / "mm.json"
+    assert config_path.exists()
+    assert json.loads(config_path.read_text(encoding="utf-8"))["harness"] == "codex"
+
+
+def test_init_outside_project_does_not_prompt_for_harness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("muscle_memory.cli._stdin_is_interactive", return_value=True, create=True),
+        patch("muscle_memory.cli.Prompt.ask", return_value="codex") as ask,
+    ):
+        result = runner.invoke(app, ["init"])
+
+    assert result.exit_code == 1
+    assert "Not inside a project" in result.output
+    ask.assert_not_called()
+
+
 def test_retrieve_returns_matching_skills_as_json(tmp_path: Path) -> None:
     project_root = tmp_path
     (project_root / ".claude").mkdir()

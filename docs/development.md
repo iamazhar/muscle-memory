@@ -24,9 +24,10 @@ uv tool install --from . muscle-memory
 mm --version
 ```
 
-For the Claude Code-first v1 release path, the supported surface is the
-Claude Code harness plus the behavioral release proof. If a session gets into a
-bad state, the same recovery commands used in production docs apply here:
+The deepest runtime surface is still the Claude Code harness, and the
+behavioral release proof is still Claude-specific. Codex setup and ingest
+flows are also supported in the fast suites. If a session gets into a bad
+state, the same recovery commands used in production docs apply here:
 `mm maint pause`, `mm maint resume`, `mm doctor`, `mm review list`, and
 `mm jobs retry-failed`.
 
@@ -77,7 +78,8 @@ Two options:
 ```bash
 # option 1: via the editable venv (after ./scripts/dev-sync)
 .venv/bin/mm list
-.venv/bin/mm init --harness generic
+.venv/bin/mm init
+.venv/bin/mm init --harness codex
 
 # option 2: via PYTHONPATH
 PYTHONPATH=src python -m muscle_memory list
@@ -135,6 +137,7 @@ src/muscle_memory/
 ├── harness/
 │   ├── base.py       # harness adapter interface
 │   ├── claude_code.py# Claude Code runtime adapter
+│   ├── codex.py      # Codex transcript + setup adapter
 │   └── generic.py    # harness-agnostic / offline-only adapter
 ├── hooks/
 │   ├── user_prompt.py   # UserPromptSubmit handler
