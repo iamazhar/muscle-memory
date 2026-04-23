@@ -8,10 +8,10 @@ on:
         required: true
         type: string
       publish_to_pypi:
-        description: "Publish the built package to PyPI"
+        description: "Publish the built package to PyPI after the GitHub release"
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
 
     steps:
@@ -131,19 +131,93 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
 
+      - name: Upload python distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  build-binaries:
+    name: Build binaries (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-latest
+          - target: linux-x86_64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra openai --extra voyage
+
+      - name: Build standalone binary
+        run: uv run python scripts/build_release_binaries.py "${{ inputs.version }}" dist --target "${{ matrix.target }}"
+
+      - name: Smoke-test standalone binary
+        run: uv run python scripts/check_release_binaries.py "${{ inputs.version }}" dist --target "${{ matrix.target }}"
+
+      - name: Upload standalone binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/mm-*
+
+  release:
+    needs: [verify, build-binaries]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Download python distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets
+
+      - name: Download standalone binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Assemble installer and checksum manifest
+        run: |
+          cp scripts/install.sh release-assets/install.sh
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          from muscle_memory.release_artifacts import build_checksum_manifest_for_paths
+
+          root = Path("release-assets")
+          paths = sorted(
+              path for path in root.iterdir() if path.is_file() and path.name != "SHA256SUMS"
+          )
+          build_checksum_manifest_for_paths(paths, root)
+          PY
+
       - name: Extract release notes
         env:
           VERSION: ${{ inputs.version }}
         run: uv run python scripts/release_notes.py "${VERSION}" > release-notes.md
-
-      - name: Publish to PyPI
-        if: ${{ inputs.publish_to_pypi }}
-        uses: pypa/gh-action-pypi-publish@release/v1
-
-      - name: Generate SHA256 checksum manifest
-        env:
-          VERSION: ${{ inputs.version }}
-        run: uv run python scripts/generate_release_checksums.py "${VERSION}"
 
       - name: Create and push tag
         env:
@@ -164,4 +238,20 @@ jobs:
           tag_name: v${{ inputs.version }}
           name: v${{ inputs.version }}
           body_path: release-notes.md
-          files: dist/*
+          files: release-assets/*
+
+  publish-pypi:
+    if: ${{ inputs.publish_to_pypi }}
+    needs: [release]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Download python distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -44,9 +44,10 @@ PY
 )
 ```
 
-For the full CI-equivalent package path, also run the benchmark gate, build,
-distribution checks, checksum generation, and smoke tests. The complete ordered
-release sequence lives in [docs/release.md](release.md).
+For the full CI-equivalent release path, also run the benchmark gate, build,
+distribution checks, checksum generation, wheel/sdist smoke tests, and the
+current-platform binary build/smoke path. The complete ordered release
+sequence lives in [docs/release.md](release.md).
 
 If you want the lower-level package checks individually:
 
@@ -71,6 +72,20 @@ PY
 )
 ```
 
+If you are exercising the curl-install release path locally, also build and
+smoke-test the standalone binary for your current target:
+
+```bash
+uv sync --extra dev --extra openai --extra voyage
+uv run python scripts/build_release_binaries.py 0.12.0 dist --target darwin-arm64
+uv run python scripts/check_release_binaries.py 0.12.0 dist --target darwin-arm64
+```
+
+On Linux, swap the target to `linux-x86_64`. The GitHub release job then merges
+those binaries with `scripts/install.sh` and a `SHA256SUMS` manifest before
+publishing the release payload. Package artifact attestations still cover the
+wheel and sdist path.
+
 ## Running the CLI during development
 
 Two options:
@@ -93,11 +108,12 @@ PYTHONPATH=src python -m muscle_memory retrieve "run the tests" --json
 3. In GitHub Actions, run the `Release` workflow and pass that same version.
 
 The workflow validates version consistency, runs the test suite, builds the
-wheel and sdist, smoke-tests clean installs from both artifacts, generates
-GitHub artifact attestations for the built distributions when the repository
-supports them, extracts the matching changelog section as release notes, pushes
-tag `vX.Y.Z`, can publish to PyPI, emits a `SHA256SUMS` manifest for the
-release artifacts, and creates a GitHub release.
+wheel and sdist, smoke-tests clean installs from both artifacts, builds the
+macOS and Linux standalone binaries, generates GitHub artifact attestations for
+the built distributions when the repository supports them, extracts the
+matching changelog section as release notes, pushes tag `vX.Y.Z`, publishes the
+GitHub release asset bundle (`install.sh`, binaries, checksums, wheel, and
+sdist), and can publish to PyPI afterward as an optional non-blocking follow-up.
 
 If you also maintain the separate Homebrew tap, bump the formula there after
 the GitHub release is live so `brew update` can discover the new version.

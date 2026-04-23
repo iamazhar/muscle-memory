@@ -23,6 +23,15 @@ def test_ci_runs_release_benchmark_gate() -> None:
     assert "failed_thresholds" in text
 
 
+def test_ci_workflow_smokes_linux_binary_install_path() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "scripts/build_release_binaries.py" in text
+    assert "scripts/check_release_binaries.py" in text
+    assert "linux-x86_64" in text
+    assert "tests/test_install_script.py" in text
+
+
 def test_development_docs_note_release_preflight() -> None:
     text = DEVELOPMENT_DOC.read_text(encoding="utf-8")
 
@@ -38,3 +47,14 @@ def test_readme_calls_out_supported_harnesses_and_recovery() -> None:
     assert "mm maint pause" in text
     assert "mm review list" in text
     assert "mm jobs retry-failed" in text
+
+
+def test_readme_prefers_curl_install() -> None:
+    text = README.read_text(encoding="utf-8")
+
+    assert (
+        "curl -fsSL "
+        "https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | sh"
+    ) in text
+    assert "GitHub Releases" in text
+    assert "uv tool install muscle-memory" in text

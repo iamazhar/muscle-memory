@@ -10,6 +10,7 @@ from muscle_memory.release_artifacts import (
     ArtifactSpec,
     assert_version_output,
     build_checksum_manifest,
+    build_checksum_manifest_for_paths,
     discover_release_artifacts,
 )
 
@@ -93,3 +94,31 @@ def test_build_checksum_manifest_writes_sorted_sha256_lines(tmp_path: Path) -> N
         "9ceb18f15662bb87e54af2f5953c0484d2ef76f5444d87913360b9ef87d7296d  muscle_memory-0.8.0-py3-none-any.whl",
         "3493dfe12f9879d916893954eb5c64591ab724bd752d2d79a7b55e15b2417239  muscle_memory-0.8.0.tar.gz",
     ]
+
+
+def test_build_checksum_manifest_for_paths_supports_binary_and_installer_assets(
+    tmp_path: Path,
+) -> None:
+    wheel = tmp_path / "muscle_memory-0.11.0-py3-none-any.whl"
+    sdist = tmp_path / "muscle_memory-0.11.0.tar.gz"
+    binary = tmp_path / "mm-linux-x86_64"
+    installer = tmp_path / "install.sh"
+    for path, text in (
+        (wheel, "wheel"),
+        (sdist, "sdist"),
+        (binary, "binary"),
+        (installer, "installer"),
+    ):
+        path.write_text(text, encoding="utf-8")
+
+    manifest_path = build_checksum_manifest_for_paths(
+        [wheel, sdist, binary, installer],
+        tmp_path,
+    )
+
+    assert manifest_path == tmp_path / "SHA256SUMS"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    assert "install.sh" in manifest_text
+    assert "mm-linux-x86_64" in manifest_text
+    assert "muscle_memory-0.11.0-py3-none-any.whl" in manifest_text
+    assert "muscle_memory-0.11.0.tar.gz" in manifest_text
