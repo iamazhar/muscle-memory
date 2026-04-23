@@ -57,4 +57,5 @@ def test_readme_prefers_curl_install() -> None:
         "https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | sh"
     ) in text
     assert "GitHub Releases" in text
-    assert "uv tool install muscle-memory" in text
+    assert "MM_VERSION=0.11.0" in text
+    assert "git+https://github.com/iamazhar/muscle-memory.git@v0.11.0" in text

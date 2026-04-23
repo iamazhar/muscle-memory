@@ -61,17 +61,18 @@ platform, verifies it against `SHA256SUMS`, and installs `mm` into
 To pin a specific release:
 
 ```bash
-curl -fsSL https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | MM_VERSION=0.12.0 sh
+curl -fsSL https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | MM_VERSION=0.11.0 sh
 ```
 
-Package install remains available as a secondary path when you specifically want
-the Python package instead of the standalone GitHub Releases binary:
+If you specifically want the Python package from a tagged release instead of the
+standalone GitHub Releases binary, install from the release tag directly:
 
 ```bash
-uv tool install muscle-memory
+# replace v0.11.0 with the release tag you want
+uv tool install "muscle-memory @ git+https://github.com/iamazhar/muscle-memory.git@v0.11.0"
 
 # or with OpenAI support baked in for extraction/refinement
-uv tool install 'muscle-memory[openai]'
+uv tool install "muscle-memory[openai] @ git+https://github.com/iamazhar/muscle-memory.git@v0.11.0"
 ```
 
 Once installed, initialize muscle-memory inside your project:
