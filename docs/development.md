@@ -77,8 +77,16 @@ smoke-test the standalone binary for your current target:
 
 ```bash
 uv sync --extra dev --extra openai --extra voyage
-uv run python scripts/build_release_binaries.py 0.12.0 dist --target darwin-arm64
-uv run python scripts/check_release_binaries.py 0.12.0 dist --target darwin-arm64
+VERSION="$(uv run python - <<'PY'
+import tomllib
+from pathlib import Path
+
+pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+print(pyproject['project']['version'])
+PY
+)"
+uv run python scripts/build_release_binaries.py "${VERSION}" dist --target darwin-arm64
+uv run python scripts/check_release_binaries.py "${VERSION}" dist --target darwin-arm64
 ```
 
 On Linux, swap the target to `linux-x86_64`. The GitHub release job then merges
