@@ -32,7 +32,7 @@ Claude Code subscription, we will adopt it immediately.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-api03-...
-mm bootstrap
+mm learn
 ```
 
 You can top up at <https://console.anthropic.com/settings/billing>.
@@ -50,7 +50,7 @@ export MM_LLM_PROVIDER=openai
 # optional — defaults to gpt-4o-mini
 export MM_LLM_MODEL=gpt-4o-mini
 
-mm bootstrap
+mm learn
 ```
 
 ## Option 3 — Ollama (planned)

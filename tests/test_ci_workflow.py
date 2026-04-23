@@ -38,15 +38,17 @@ def test_development_docs_note_release_preflight() -> None:
     assert "release preflight" in text.lower()
 
 
-def test_readme_calls_out_supported_harnesses_and_recovery() -> None:
+def test_readme_calls_out_supported_harnesses_and_core_loop() -> None:
     text = README.read_text(encoding="utf-8")
 
     assert "Claude Code has the deepest runtime integration today" in text
-    assert "Codex is also supported" in text
+    assert "Codex is supported" in text
+    assert "better outcomes" in text
+    assert "fewer tokens" in text
+    assert "mm learn" in text
+    assert "mm status" in text
+    assert "mm skills" in text
     assert "mm doctor" in text
-    assert "mm maint pause" in text
-    assert "mm review list" in text
-    assert "mm jobs retry-failed" in text
 
 
 def test_readme_prefers_curl_install() -> None:

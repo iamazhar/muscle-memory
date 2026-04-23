@@ -109,9 +109,9 @@ def test_testing_and_demo_docs_note_supported_surface_and_recovery() -> None:
     assert "recovery" in testing_text.lower()
     assert "deepest runtime integration" in demo_text
     assert "Codex" in demo_text
+    assert "mm status" in demo_text
     assert "mm doctor" in demo_text
-    assert "mm review list" in demo_text
-    assert "mm jobs retry-failed" in demo_text
+    assert "mm skills" in demo_text
 
 
 def test_development_docs_distinguish_preflight_from_full_ci_path() -> None:

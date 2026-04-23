@@ -106,7 +106,7 @@ trusted skill, retrieval skips embedding entirely and records that decision
 in `MM_DEBUG` telemetry.
 
 **Impact:** obvious no-match prompts now avoid the cold embed path and
-become visible in operator tooling (`mm doctor`, `mm stats`) as lexical
+become visible in operator tooling (`mm doctor`, `mm status`) as lexical
 prefilter skips.
 
 ### Shell-escape gate (v0.1, hooks/user_prompt.py)

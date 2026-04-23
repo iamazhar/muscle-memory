@@ -25,13 +25,9 @@ covered in the fast suites for setup and transcript ingest, not for automatic
 prompt-hook injection.
 
 If a Claude Code session needs recovery, use the operator commands we rely on
-in the rest of the repo:
-
-- `mm maint pause`
-- `mm maint resume`
-- `mm doctor`
-- `mm review list`
-- `mm jobs retry-failed`
+in the rest of the repo. Start with `mm status` and `mm doctor`; if the
+diagnosis points to a lower-level problem, use the advanced `maint`, `review`,
+or `jobs` command groups.
 
 ## Running tests
 

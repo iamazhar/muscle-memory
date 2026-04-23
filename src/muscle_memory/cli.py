@@ -28,36 +28,34 @@ from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Ou
 console = Console()
 app = typer.Typer(
     name="mm",
-    help="muscle-memory: procedural memory for coding agents.",
+    help="muscle-memory: practiced skill for coding agents.",
     no_args_is_help=True,
     add_completion=False,
 )
 
-maint_app = typer.Typer(help="Maintenance, repair, and runtime controls.")
-app.add_typer(maint_app, name="maint")
+maint_app = typer.Typer(help="Advanced maintenance, repair, and runtime controls.")
+app.add_typer(maint_app, name="maint", hidden=True)
 
-share_app = typer.Typer(help="Import/export skills for sharing and backup.")
-app.add_typer(share_app, name="share")
+share_app = typer.Typer(help="Advanced import/export for skills.")
+app.add_typer(share_app, name="share", hidden=True)
 
-review_app = typer.Typer(help="Review quarantined candidate skills.")
-app.add_typer(review_app, name="review")
+review_app = typer.Typer(help="Advanced review for quarantined candidate skills.")
+app.add_typer(review_app, name="review", hidden=True)
 
-jobs_app = typer.Typer(help="Inspect and retry tracked background jobs.")
-app.add_typer(jobs_app, name="jobs")
+jobs_app = typer.Typer(help="Advanced inspection for background jobs.")
+app.add_typer(jobs_app, name="jobs", hidden=True)
 
-ingest_app = typer.Typer(help="Ingest transcripts or normalized episodes from any harness.")
-app.add_typer(ingest_app, name="ingest")
+ingest_app = typer.Typer(help="Advanced transcript and episode ingestion.")
+app.add_typer(ingest_app, name="ingest", hidden=True)
 
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
 app.add_typer(hook_app, name="hook", hidden=True)
 
-eval_app = typer.Typer(help="Evaluate outcome detection, retrieval, and skill impact.")
-app.add_typer(eval_app, name="eval")
+eval_app = typer.Typer(help="Advanced evaluation for outcome detection and skill impact.")
+app.add_typer(eval_app, name="eval", hidden=True)
 
-simulate_app = typer.Typer(
-    help="Synthetic dogfooding — drive skills through scoring without real sessions."
-)
-app.add_typer(simulate_app, name="simulate")
+simulate_app = typer.Typer(help="Advanced synthetic dogfooding without real sessions.")
+app.add_typer(simulate_app, name="simulate", hidden=True)
 
 
 # ----------------------------------------------------------------------
@@ -229,7 +227,7 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """muscle-memory: procedural memory for coding agents."""
+    """muscle-memory: practiced skill for coding agents."""
 
 
 @app.command(hidden=True)
@@ -320,13 +318,14 @@ def init(
     console.print(next_step)
 
 
-@app.command("list")
+@app.command("skills")
+@app.command("list", hidden=True)
 def list_skills(
     maturity: Maturity | None = typer.Option(None, "--maturity", "-m"),
     limit: int = typer.Option(50, "--limit", "-n"),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """List skills in the current project's database."""
+    """List the skills learned for this project."""
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills(maturity=maturity, limit=limit)
@@ -388,7 +387,7 @@ def retrieve(
     prompt: str = typer.Argument(..., help="Prompt/task to retrieve relevant skills for."),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """Retrieve relevant skills without relying on harness-specific prompt hooks."""
+    """Retrieve the practiced skills relevant to a task."""
     from muscle_memory.retriever import Retriever
 
     cfg = _load_config()
@@ -707,11 +706,12 @@ def log(
     console.print(table)
 
 
-@app.command()
+@app.command("status")
+@app.command("stats", hidden=True)
 def stats(
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """Summarize the skill store with actionable metrics."""
+    """Show whether muscle-memory is improving outcomes and reuse."""
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills()
@@ -906,13 +906,13 @@ def stats(
     if pending_review:
         console.print(
             f"  [yellow]pending review[/yellow] {len(pending_review)} candidates"
-            "  (`mm review list` / `mm review approve`)"
+            "  (advanced: `mm review list` / `mm review approve`)"
         )
         attention_items += 1
     if inconsistent_counters:
         console.print(
             f"  [yellow]counter drift[/yellow] {len(inconsistent_counters)} skills"
-            "  (success/failure counts exceed activations; run `mm rescore`)"
+            "  (success/failure counts exceed activations; run `mm maint rescore`)"
         )
         attention_items += 1
     if stale:
@@ -933,13 +933,14 @@ def stats(
         attention_items += 1
     if failed_jobs:
         console.print(
-            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry  (`mm jobs retry-failed`)"
+            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry"
+            "  (advanced: `mm jobs retry-failed`)"
         )
         attention_items += 1
     if paused:
         console.print(
             "  [yellow]paused[/yellow]        project is paused"
-            "  (`mm maint resume` before dogfooding)"
+            "  (advanced: `mm maint resume` before dogfooding)"
         )
         attention_items += 1
     if governance.demote_skill_ids:
@@ -1086,7 +1087,7 @@ def doctor(
         console.print("[dim]Database missing. Run [bold]mm init[/bold] first.[/dim]")
 
 
-@app.command()
+@app.command(hidden=True)
 def refine(
     skill_id: str | None = typer.Argument(
         None, help="Skill id or prefix to refine. Omit with --auto to sweep."
@@ -1419,6 +1420,46 @@ def import_cmd(
 
 
 @app.command()
+def learn(
+    transcript: Path | None = typer.Option(
+        None,
+        "--transcript",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Transcript file to learn from. Omit to scan recent Claude Code history.",
+    ),
+    format: str = typer.Option("claude-jsonl", "--format", help="Transcript format."),
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        help="Original user prompt for transcript formats that do not preserve it.",
+    ),
+    extract: bool = typer.Option(
+        True, "--extract/--no-extract", help="Extract skills after ingesting a transcript."
+    ),
+    days: int = typer.Option(30, "--days", "-d", help="Look back N days when scanning history."),
+    max_sessions: int = typer.Option(200, "--max-sessions"),
+    project_only: bool = typer.Option(
+        True,
+        "--project-only/--all-projects",
+        help="Only consider sessions from the current project when scanning history.",
+    ),
+) -> None:
+    """Learn skills from recent history or an explicit transcript."""
+    if transcript is not None:
+        ingest_transcript_cmd(
+            transcript=transcript,
+            format=format,
+            prompt=prompt,
+            extract=extract,
+        )
+        return
+
+    bootstrap(days=days, max_sessions=max_sessions, project_only=project_only)
+
+
+@app.command(hidden=True)
 def bootstrap(
     days: int = typer.Option(30, "--days", "-d", help="Look back N days."),
     max_sessions: int = typer.Option(200, "--max-sessions"),
@@ -2085,11 +2126,15 @@ def _candidate_review_metadata(skill: Skill) -> dict[str, Any]:
 def _attention_recommendations(*, pending_review: int, failed_jobs: int, paused: bool) -> list[str]:
     recommendations: list[str] = []
     if pending_review:
-        recommendations.append("Run `mm review list` to inspect quarantined candidates.")
+        recommendations.append("Run advanced `mm review list` to inspect quarantined candidates.")
     if failed_jobs:
-        recommendations.append("Run `mm jobs retry-failed` to retry failed background work.")
+        recommendations.append(
+            "Run advanced `mm jobs retry-failed` to retry failed background work."
+        )
     if paused:
-        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+        recommendations.append(
+            "Run advanced `mm maint resume` before dogfooding if the project is paused."
+        )
     return recommendations
 
 
@@ -2100,7 +2145,9 @@ def _doctor_recommendations(*, debug_enabled: bool, paused: bool) -> list[str]:
             "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions."
         )
     if paused:
-        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+        recommendations.append(
+            "Run advanced `mm maint resume` before dogfooding if the project is paused."
+        )
     return recommendations
 
 
