@@ -64,6 +64,11 @@ def build_checksum_manifest(artifacts: list[ArtifactSpec], output_dir: Path) -> 
     return manifest_path
 
 
+def build_checksum_manifest_for_paths(paths: list[Path], output_dir: Path) -> Path:
+    artifacts = [ArtifactSpec(kind="generic", path=path) for path in paths]
+    return build_checksum_manifest(artifacts, output_dir)
+
+
 def _bin_dir(venv_dir: Path) -> Path:
     return venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
 
@@ -103,7 +108,7 @@ def verify_release_artifacts(version: str, dist_dir: Path) -> None:
 
 def write_release_checksums(version: str, dist_dir: Path) -> Path:
     artifacts = discover_release_artifacts(dist_dir, version)
-    return build_checksum_manifest(artifacts, dist_dir)
+    return build_checksum_manifest_for_paths([artifact.path for artifact in artifacts], dist_dir)
 
 
 def checksum_main(argv: list[str] | None = None) -> int:

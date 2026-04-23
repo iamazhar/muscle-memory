@@ -49,13 +49,34 @@ Then Claude **executes the playbook directly** — runs the commands, makes the 
 ## Quickstart
 
 ```bash
-# install (Claude runtime adapter + local embeddings by default)
+# install from GitHub Releases (recommended)
+curl -fsSL https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | sh
+mm --version
+```
+
+The GitHub Releases installer downloads the matching standalone binary for your
+platform, verifies it against `SHA256SUMS`, and installs `mm` into
+`${MM_INSTALL_DIR:-$HOME/.local/bin}`.
+
+To pin a specific release:
+
+```bash
+curl -fsSL https://github.com/iamazhar/muscle-memory/releases/latest/download/install.sh | MM_VERSION=0.12.0 sh
+```
+
+Package install remains available as a secondary path when you specifically want
+the Python package instead of the standalone GitHub Releases binary:
+
+```bash
 uv tool install muscle-memory
 
 # or with OpenAI support baked in for extraction/refinement
 uv tool install 'muscle-memory[openai]'
+```
 
-# in your project
+Once installed, initialize muscle-memory inside your project:
+
+```bash
 cd ~/code/my-project
 
 # choose Claude Code or Codex in your terminal

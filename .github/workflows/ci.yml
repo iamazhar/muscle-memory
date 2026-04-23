@@ -94,3 +94,36 @@ jobs:
           PY
           )"
           uv run python scripts/check_release_artifacts.py "${VERSION}"
+
+  binary-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra openai --extra voyage
+      - name: Build Linux release binary
+        run: |
+          VERSION="$(uv run python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(pyproject['project']['version'])
+          PY
+          )"
+          uv run python scripts/build_release_binaries.py "${VERSION}" dist --target linux-x86_64
+      - name: Smoke-test Linux release binary
+        run: |
+          VERSION="$(uv run python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(pyproject['project']['version'])
+          PY
+          )"
+          uv run python scripts/check_release_binaries.py "${VERSION}" dist --target linux-x86_64
+      - name: Smoke-test installer path
+        run: uv run pytest tests/test_install_script.py -q

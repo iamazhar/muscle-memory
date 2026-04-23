@@ -44,6 +44,28 @@ def test_release_workflow_skips_attestations_for_private_repos() -> None:
     assert "if: ${{ !github.event.repository.private }}" in text
 
 
+def test_release_workflow_builds_and_uploads_binaries() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "build-binaries:" in text
+    assert "macos-latest" in text
+    assert "ubuntu-latest" in text
+    assert "scripts/build_release_binaries.py" in text
+    assert "scripts/check_release_binaries.py" in text
+    assert "actions/upload-artifact@v4" in text
+    assert "actions/download-artifact@v4" in text
+    assert "install.sh" in text
+
+
+def test_release_workflow_makes_pypi_optional_and_non_blocking() -> None:
+    text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "default: false" in text
+    assert "publish-pypi:" in text
+    assert "continue-on-error: true" in text
+    assert "if: ${{ inputs.publish_to_pypi }}" in text
+
+
 def test_development_docs_note_release_attestations() -> None:
     text = DEVELOPMENT_DOC.read_text(encoding="utf-8")
 
@@ -73,6 +95,9 @@ def test_release_checklist_doc_exists_and_lists_gate_steps() -> None:
     assert "# Release Checklist" in text
     assert "release_benchmark_gate.py" in text
     assert "release_preflight.py" in text
+    assert "build_release_binaries.py" in text
+    assert "install.sh" in text
+    assert "SHA256SUMS" in text
 
 
 def test_testing_and_demo_docs_note_supported_surface_and_recovery() -> None:
@@ -93,5 +118,7 @@ def test_development_docs_distinguish_preflight_from_full_ci_path() -> None:
     text = DEVELOPMENT_DOC.read_text(encoding="utf-8")
 
     assert "first release gate" in text.lower()
-    assert "full CI-equivalent package path" in text
+    assert "full CI-equivalent release path" in text
+    assert "build_release_binaries.py" in text
+    assert "install.sh" in text
     assert "docs/release.md" in text
