@@ -2,17 +2,18 @@
 
 ## Test layers
 
-`muscle-memory` is covered by three layers of tests:
+`muscle-memory` now has a broader test surface than the original v0.x docs
+described. The current suite collects **412 tests** across:
 
-| Suite | Count | Runtime | Requires |
-|---|---|---|---|
-| Unit (`test_models`, `test_db`, `test_outcomes`, `test_extractor`, `test_retriever`, `test_dedup`) | 49 | <100ms | Python deps only |
-| Integration (`test_integration`) | 23 | <200ms | Python deps only |
-| Edge cases (`test_edge_cases`) | 27 | ~500ms | Python deps (tests concurrency + 500-skill scale) |
-| Behavioral (`test_behavioral`) | 8 | ~60s | `claude` + `mm` on PATH, **OPT-IN** |
+- core model, storage, retrieval, outcome, extraction, refine, and dedup logic
+- CLI/operator flows such as `doctor`, `stats`, `review`, jobs, and harness setup
+- integration, ingest, demo-app, and edge-case coverage
+- release/workflow checks for CI, release preflight, artifacts, and release docs
+- behavioral proof on the Claude Code-first runtime surface
 
-Total: **99 passing tests** run by `pytest` in under a second. Behavioral
-tests are skipped by default because they spawn real Claude Code sessions.
+Most of the suite is fast and runs with Python dependencies only. The
+behavioral tests are still the opt-in exception because they spawn real Claude
+Code sessions.
 
 ## Claude Code-first v1
 
@@ -35,7 +36,7 @@ in the rest of the repo:
 # after the dev-sync workaround for the macOS .pth hidden flag:
 ./scripts/dev-sync
 
-# default: unit + integration + edge cases (fast)
+# default: the fast local suite
 .venv/bin/python -m pytest tests/
 
 # include slow behavioral tests (real Claude Code)

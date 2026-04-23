@@ -6,7 +6,7 @@
 ./scripts/dev-sync
 ```
 
-This runs `uv sync --extra dev` and then clears the macOS hidden-file flag
+This runs `uv sync --frozen --extra dev` and then clears the macOS hidden-file flag
 that uv sets on its editable `.pth` files. (See **known gotcha** below.)
 
 ## Running tests
