@@ -5,11 +5,13 @@
 <h1 align="center">muscle-memory</h1>
 
 <p align="center">
-  <em>Procedural memory for coding agents. Your past sessions, compiled.</em>
+  <em>Practiced skill for coding agents. Better outcomes with fewer tokens.</em>
 </p>
 
 
-`muscle-memory` gives coding agents and harnesses a memory that actually compounds. Instead of dumping prose into `CLAUDE.md` files that bloat every context, it watches sessions, extracts reusable **Skills** — executable playbooks with activation conditions, steps, and termination criteria — and retrieves the right ones on demand when you start a new task. Claude Code has the deepest runtime integration today, and Codex is also supported for setup, explicit retrieval, and offline transcript ingest.
+`muscle-memory` gives coding agents practiced skill. It turns past successful work into compact, reusable **Skills**: executable playbooks with activation conditions, steps, and termination criteria. The goal is simple: better outcomes, less rediscovery, and fewer tokens than an agent that starts from scratch every session.
+
+Instead of dumping prose into `CLAUDE.md` files that bloat every context, `muscle-memory` retrieves only the relevant playbook when the task calls for it. Claude Code has the deepest runtime integration today, and Codex is supported for setup, explicit `mm use`, and offline transcript ingest.
 
 Inspired by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869), but purpose-built for coding agents.
 
@@ -34,7 +36,7 @@ Session 20: Skill has been invoked 18x, 17 successes → promoted to "proven"
 Session 50: Unused skills auto-pruned, active ones keep improving
 ```
 
-Skills are **on-demand** (not always in context), **execution-scored** (good ones survive, bad ones die), **self-improving** (failing skills get rewritten via semantic-gradient PPO), and **user-editable** (plain text, no opaque embeddings).
+Skills are **on-demand** (not always in context), **execution-scored** (good ones survive, bad ones die), and **user-editable** (plain text, no opaque embeddings).
 
 ### You'll see it working
 
@@ -83,50 +85,38 @@ cd ~/code/my-project
 # choose Claude Code or Codex in your terminal
 mm init
 
-# or: explicit harness selection for scripts/CI
+# explicit harness selection for scripts/CI
 mm init --harness claude-code
 mm init --harness codex
 
-# generic harness mode for other agents/orchestrators
-mm init --harness generic
+# learn from recent Claude Code history
+mm learn --days 30
 
-# optional: bootstrap from recent Claude Code history
-mm bootstrap --days 30
+# use practiced skill for any harness, especially Codex
+mm use "run the tests in this repo"
 
-# explicit retrieval for any harness
+# compatibility search output for scripts
 mm retrieve "run the tests in this repo" --json
 
-# offline ingest of a Claude transcript
-mm ingest transcript ./session.jsonl --format claude-jsonl --no-extract
+# learn from an explicit transcript
+mm learn --transcript ./session.jsonl --format claude-jsonl --no-extract
 
-# inspect what you've learned
-mm list
+# inspect outcomes, token efficiency, and learned skills
+mm status
+mm skills
 mm show <skill-id>
-mm stats
 mm doctor
-mm jobs list
-
-# review quarantined candidates before they become retrievable
-mm review list
-mm review approve <skill-id>
-mm review reject <skill-id>
-
-# self-improvement
-mm refine <skill-id>       # rewrite a skill via semantic-gradient PPO
-mm refine --auto           # sweep all skills meeting auto-refine criteria
-mm refine <id> --rollback  # undo the most recent refinement
-
-# maintenance
-mm maint pause         # pause hooks while you investigate a bad state
-mm maint resume        # resume hooks after recovery
-mm doctor              # inspect runtime health, retrieval decisions, and jobs
-mm review list         # inspect quarantined candidates before promoting them
-mm jobs retry-failed   # retry failed background extraction/refinement work
-mm maint dedup             # collapse near-duplicate skills
-mm maint rescore           # re-run the outcome heuristic on stored episodes
-mm maint prune             # delete demonstrably bad skills
-mm maint govern            # eval-driven demotion / review recommendations
 ```
+
+The primary loop is intentionally small:
+
+- `mm init` connects a project to a harness.
+- `mm learn` turns session history or transcripts into reusable skill candidates.
+- `mm use` emits compact practiced context for a task and records the activation.
+- `mm status` shows whether the store is producing reuse, successful outcomes, and token savings with confidence labels.
+- `mm skills` and `mm show` let you inspect the compact playbooks directly.
+
+Advanced operator commands still exist for repair, review, jobs, evaluation, and imports, but they are not part of the normal workflow.
 
 ## Try The Demo
 
@@ -142,18 +132,18 @@ Run `mm init` in a real terminal to choose between Claude Code and Codex. The se
 For Claude Code runtime integration, `mm init --harness claude-code` installs hooks into `.claude/settings.json` and uses the existing Claude Code session to capture prompts/transcripts.
 
 For Codex, `mm init --harness codex` initializes the project database and saved harness config, but does not install automatic prompt hooks yet. Use:
-- `mm retrieve ...` for explicit retrieval before prompting Codex
-- `mm ingest transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
+- `mm use ...` for explicit practiced context before prompting Codex
+- `mm learn --transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
 
 For other harnesses, initialize with `mm init --harness generic` and use:
-- `mm retrieve ...` for explicit retrieval before prompting your agent
-- `mm ingest transcript ...` or `mm ingest episode ...` for offline learning
+- `mm use ...` for explicit practiced context before prompting your agent
+- `mm learn --transcript ...` for offline learning
 
 For extraction/refinement, the default LLM backend is still `claude-code`. If you prefer API-key-based extraction, set `MM_LLM_PROVIDER=openai` and `OPENAI_API_KEY=***`.
 
 ## How it works
 
-The core engine is harness-agnostic: retrieval, scoring, extraction, and storage live in the same memory layer regardless of runtime. The diagram below shows the Claude Code adapter path; other harnesses can use explicit `mm retrieve` plus offline `mm ingest ...`.
+The core engine is harness-agnostic: retrieval, scoring, extraction, and storage live in the same memory layer regardless of runtime. The diagram below shows the Claude Code adapter path; other harnesses can use explicit `mm use` plus offline `mm learn --transcript ...`.
 
 ```
 ┌────────────────────────── Claude Code Session ────────────────────────────┐

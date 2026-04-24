@@ -16,14 +16,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from muscle_memory.models import (
+    ActivationRecord,
     BackgroundJob,
+    DeliveryMode,
     Episode,
+    EvidenceConfidence,
     JobKind,
     JobStatus,
     Maturity,
+    MeasurementRecord,
     Outcome,
     Scope,
     Skill,
+    TaskRecord,
     ToolCall,
     Trajectory,
 )
@@ -31,7 +36,7 @@ from muscle_memory.models import (
 if TYPE_CHECKING:
     from muscle_memory.eval import EvalLabel
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
 
 
 def _l2_distance(a: list[float], b: list[float]) -> float:
@@ -177,6 +182,57 @@ class Store:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_single_active_refine
                     ON jobs(kind)
                     WHERE kind = 'refine' AND status IN ('pending', 'running');
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY,
+                    raw_prompt TEXT NOT NULL,
+                    cleaned_prompt TEXT NOT NULL,
+                    intent_summary TEXT,
+                    harness TEXT NOT NULL DEFAULT 'generic',
+                    project_path TEXT,
+                    session_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+                CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS activations (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    skill_id TEXT NOT NULL,
+                    distance REAL,
+                    final_rank REAL,
+                    delivery_mode TEXT NOT NULL,
+                    injected_token_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_token_count >= 0),
+                    credited_outcome TEXT,
+                    created_at TEXT NOT NULL,
+                    credited_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_activations_task ON activations(task_id);
+                CREATE INDEX IF NOT EXISTS idx_activations_skill ON activations(skill_id);
+
+                CREATE TABLE IF NOT EXISTS measurements (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                    outcome TEXT NOT NULL DEFAULT 'unknown',
+                    confidence TEXT NOT NULL DEFAULT 'low',
+                    reason TEXT NOT NULL DEFAULT '',
+                    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_skill_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (tool_call_count >= 0),
+                    comparable INTEGER NOT NULL DEFAULT 0,
+                    measured_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
+                CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
                 """
             )
 
@@ -295,7 +351,184 @@ class Store:
                 """
             )
 
+        if current_version < 7:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id TEXT PRIMARY KEY,
+                    raw_prompt TEXT NOT NULL,
+                    cleaned_prompt TEXT NOT NULL,
+                    intent_summary TEXT,
+                    harness TEXT NOT NULL DEFAULT 'generic',
+                    project_path TEXT,
+                    session_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+                CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS activations (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    skill_id TEXT NOT NULL,
+                    distance REAL,
+                    final_rank REAL,
+                    delivery_mode TEXT NOT NULL,
+                    injected_token_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_token_count >= 0),
+                    credited_outcome TEXT,
+                    created_at TEXT NOT NULL,
+                    credited_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_activations_task ON activations(task_id);
+                CREATE INDEX IF NOT EXISTS idx_activations_skill ON activations(skill_id);
+
+                CREATE TABLE IF NOT EXISTS measurements (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                    outcome TEXT NOT NULL DEFAULT 'unknown',
+                    confidence TEXT NOT NULL DEFAULT 'low',
+                    reason TEXT NOT NULL DEFAULT '',
+                    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_skill_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (tool_call_count >= 0),
+                    comparable INTEGER NOT NULL DEFAULT 0,
+                    measured_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
+                CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
+                """
+            )
+
+        if current_version == 7:
+            self._validate_v7_personal_loop_constraints(conn)
+            self._rebuild_activations_with_constraints(conn)
+            self._rebuild_measurements_with_constraints(conn)
+
+        if current_version < 8:
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
+                """
+            )
+
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+
+    def _validate_v7_personal_loop_constraints(self, conn: sqlite3.Connection) -> None:
+        activation = conn.execute(
+            """
+            SELECT id FROM activations
+            WHERE injected_token_count < 0
+            LIMIT 1
+            """
+        ).fetchone()
+        if activation is not None:
+            raise RuntimeError(
+                "Cannot migrate v7 personal loop tables: "
+                "activations.injected_token_count contains negative values"
+            )
+
+        measurement = conn.execute(
+            """
+            SELECT id FROM measurements
+            WHERE input_tokens < 0
+               OR output_tokens < 0
+               OR injected_skill_tokens < 0
+               OR tool_call_count < 0
+            LIMIT 1
+            """
+        ).fetchone()
+        if measurement is not None:
+            raise RuntimeError(
+                "Cannot migrate v7 personal loop tables: "
+                "measurements token/count columns contain negative values"
+            )
+
+    def _rebuild_activations_with_constraints(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            ALTER TABLE activations RENAME TO activations_old;
+
+            CREATE TABLE activations (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                skill_id TEXT NOT NULL,
+                distance REAL,
+                final_rank REAL,
+                delivery_mode TEXT NOT NULL,
+                injected_token_count INTEGER NOT NULL DEFAULT 0
+                    CHECK (injected_token_count >= 0),
+                credited_outcome TEXT,
+                created_at TEXT NOT NULL,
+                credited_at TEXT
+            );
+
+            INSERT INTO activations (
+                id, task_id, skill_id, distance, final_rank, delivery_mode,
+                injected_token_count, credited_outcome, created_at, credited_at
+            )
+            SELECT
+                id, task_id, skill_id, distance, final_rank, delivery_mode,
+                injected_token_count, credited_outcome, created_at, credited_at
+            FROM activations_old;
+
+            DROP TABLE activations_old;
+
+            CREATE INDEX IF NOT EXISTS idx_activations_task ON activations(task_id);
+            CREATE INDEX IF NOT EXISTS idx_activations_skill ON activations(skill_id);
+            """
+        )
+
+    def _rebuild_measurements_with_constraints(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            ALTER TABLE measurements RENAME TO measurements_old;
+
+            CREATE TABLE measurements (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                outcome TEXT NOT NULL DEFAULT 'unknown',
+                confidence TEXT NOT NULL DEFAULT 'low',
+                reason TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                    CHECK (injected_skill_tokens >= 0),
+                tool_call_count INTEGER NOT NULL DEFAULT 0
+                    CHECK (tool_call_count >= 0),
+                comparable INTEGER NOT NULL DEFAULT 0,
+                measured_at TEXT NOT NULL
+            );
+
+            INSERT INTO measurements (
+                id, task_id, outcome, confidence, reason, input_tokens,
+                output_tokens, injected_skill_tokens, tool_call_count,
+                comparable, measured_at
+            )
+            SELECT
+                id, task_id, outcome, confidence, reason, input_tokens,
+                output_tokens, injected_skill_tokens, tool_call_count,
+                comparable, measured_at
+            FROM measurements_old;
+
+            DROP TABLE measurements_old;
+
+            CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
+            CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+            CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                ON measurements(measured_at DESC);
+            """
+        )
 
     # ------------------------------------------------------------------
     # skills
@@ -611,6 +844,183 @@ class Store:
         finally:
             conn.close()
 
+    def add_task(self, task: TaskRecord) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                INSERT INTO tasks (
+                    id, raw_prompt, cleaned_prompt, intent_summary, harness,
+                    project_path, session_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.id,
+                    task.raw_prompt,
+                    task.cleaned_prompt,
+                    task.intent_summary,
+                    task.harness,
+                    task.project_path,
+                    task.session_id,
+                    _iso(task.created_at),
+                ),
+            )
+
+    def get_task(self, task_id: str) -> TaskRecord | None:
+        conn = self._open()
+        try:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            return _row_to_task(row) if row else None
+        finally:
+            conn.close()
+
+    def find_latest_task_by_session(self, session_id: str) -> TaskRecord | None:
+        conn = self._open()
+        try:
+            row = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            return _row_to_task(row) if row else None
+        finally:
+            conn.close()
+
+    def list_tasks(self, *, limit: int | None = 50) -> list[TaskRecord]:
+        conn = self._open()
+        try:
+            if limit is None:
+                rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+            return [_row_to_task(r) for r in rows]
+        finally:
+            conn.close()
+
+    def add_activation(self, activation: ActivationRecord) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                INSERT INTO activations (
+                    id, task_id, skill_id, distance, final_rank, delivery_mode,
+                    injected_token_count, credited_outcome, created_at, credited_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    activation.id,
+                    activation.task_id,
+                    activation.skill_id,
+                    activation.distance,
+                    activation.final_rank,
+                    activation.delivery_mode.value,
+                    activation.injected_token_count,
+                    activation.credited_outcome.value
+                    if activation.credited_outcome is not None
+                    else None,
+                    _iso(activation.created_at),
+                    _iso(activation.credited_at),
+                ),
+            )
+
+    def list_activations_for_task(self, task_id: str) -> list[ActivationRecord]:
+        conn = self._open()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM activations WHERE task_id = ? ORDER BY created_at ASC",
+                (task_id,),
+            ).fetchall()
+            return [_row_to_activation(r) for r in rows]
+        finally:
+            conn.close()
+
+    def list_task_ids_with_activations(self) -> set[str]:
+        conn = self._open()
+        try:
+            rows = conn.execute("SELECT DISTINCT task_id FROM activations").fetchall()
+            return {str(row["task_id"]) for row in rows}
+        finally:
+            conn.close()
+
+    def credit_activations(self, task_id: str, skill_ids: list[str], outcome: Outcome) -> None:
+        if not skill_ids:
+            return
+        placeholders = ",".join("?" for _ in skill_ids)
+        with self.batch() as conn:
+            conn.execute(
+                f"""
+                UPDATE activations
+                SET credited_outcome = ?, credited_at = ?
+                WHERE task_id = ? AND skill_id IN ({placeholders})
+                """,
+                (outcome.value, _iso(datetime.now(UTC)), task_id, *skill_ids),
+            )
+
+    def add_measurement(self, measurement: MeasurementRecord) -> None:
+        with self.batch() as conn:
+            conn.execute(
+                """
+                INSERT INTO measurements (
+                    id, task_id, outcome, confidence, reason, input_tokens,
+                    output_tokens, injected_skill_tokens, tool_call_count,
+                    comparable, measured_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    outcome = excluded.outcome,
+                    confidence = excluded.confidence,
+                    reason = excluded.reason,
+                    input_tokens = excluded.input_tokens,
+                    output_tokens = excluded.output_tokens,
+                    injected_skill_tokens = excluded.injected_skill_tokens,
+                    tool_call_count = excluded.tool_call_count,
+                    comparable = excluded.comparable,
+                    measured_at = excluded.measured_at
+                """,
+                (
+                    measurement.id,
+                    measurement.task_id,
+                    measurement.outcome.value,
+                    measurement.confidence.value,
+                    measurement.reason,
+                    measurement.input_tokens,
+                    measurement.output_tokens,
+                    measurement.injected_skill_tokens,
+                    measurement.tool_call_count,
+                    int(measurement.comparable),
+                    _iso(measurement.measured_at),
+                ),
+            )
+
+    def get_measurement_for_task(self, task_id: str) -> MeasurementRecord | None:
+        conn = self._open()
+        try:
+            row = conn.execute(
+                "SELECT * FROM measurements WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            return _row_to_measurement(row) if row else None
+        finally:
+            conn.close()
+
+    def list_measurements(self, *, limit: int | None = 1000) -> list[MeasurementRecord]:
+        conn = self._open()
+        try:
+            if limit is None:
+                rows = conn.execute(
+                    "SELECT * FROM measurements ORDER BY measured_at DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM measurements ORDER BY measured_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [_row_to_measurement(r) for r in rows]
+        finally:
+            conn.close()
+
     def find_episodes_for_skill(self, skill_id: str, *, limit: int = 10) -> list[Episode]:
         """Return the most recent episodes where this skill was activated.
 
@@ -887,6 +1297,8 @@ def _row_to_episode(row: sqlite3.Row) -> Episode:
         user_followup=traj_data.get("user_followup", ""),
         tool_calls=[ToolCall(**tc) for tc in traj_data.get("tool_calls", [])],
         assistant_turns=traj_data.get("assistant_turns", []),
+        input_tokens=traj_data.get("input_tokens"),
+        output_tokens=traj_data.get("output_tokens"),
     )
     return Episode(
         id=row["id"],
@@ -899,6 +1311,51 @@ def _row_to_episode(row: sqlite3.Row) -> Episode:
         ended_at=_parse_iso(row["ended_at"]),
         project_path=row["project_path"],
         activated_skills=json.loads(row["activated_skills"]),
+    )
+
+
+def _row_to_task(row: sqlite3.Row) -> TaskRecord:
+    return TaskRecord(
+        id=row["id"],
+        raw_prompt=row["raw_prompt"],
+        cleaned_prompt=row["cleaned_prompt"],
+        intent_summary=row["intent_summary"],
+        harness=row["harness"],
+        project_path=row["project_path"],
+        session_id=row["session_id"],
+        created_at=_parse_iso(row["created_at"]) or datetime.now(UTC),
+    )
+
+
+def _row_to_activation(row: sqlite3.Row) -> ActivationRecord:
+    credited_outcome = row["credited_outcome"]
+    return ActivationRecord(
+        id=row["id"],
+        task_id=row["task_id"],
+        skill_id=row["skill_id"],
+        distance=row["distance"],
+        final_rank=row["final_rank"],
+        delivery_mode=DeliveryMode(row["delivery_mode"]),
+        injected_token_count=int(row["injected_token_count"]),
+        credited_outcome=Outcome(credited_outcome) if credited_outcome else None,
+        created_at=_parse_iso(row["created_at"]) or datetime.now(UTC),
+        credited_at=_parse_iso(row["credited_at"]),
+    )
+
+
+def _row_to_measurement(row: sqlite3.Row) -> MeasurementRecord:
+    return MeasurementRecord(
+        id=row["id"],
+        task_id=row["task_id"],
+        outcome=Outcome(row["outcome"]),
+        confidence=EvidenceConfidence(row["confidence"]),
+        reason=row["reason"],
+        input_tokens=row["input_tokens"],
+        output_tokens=row["output_tokens"],
+        injected_skill_tokens=int(row["injected_skill_tokens"]),
+        tool_call_count=int(row["tool_call_count"]),
+        comparable=bool(row["comparable"]),
+        measured_at=_parse_iso(row["measured_at"]) or datetime.now(UTC),
     )
 
 

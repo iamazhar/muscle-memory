@@ -21,6 +21,12 @@ from muscle_memory.db import Store
 from muscle_memory.debug import log_debug_event
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.harness import get_harness
+from muscle_memory.models import DeliveryMode
+from muscle_memory.personal_loop import (
+    capture_task,
+    count_text_tokens,
+    record_activations,
+)
 from muscle_memory.retriever import RetrievedSkill, Retriever
 
 
@@ -101,11 +107,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+        task = capture_task(
+            store,
+            raw_prompt=prompt,
+            harness=cfg.harness,
+            project_path=cwd,
+            session_id=session_id,
+        )
         embedder = make_embedder(cfg)
         retriever = Retriever(store, embedder, cfg)
 
         retrieve_start = time.perf_counter()
-        hits = retriever.retrieve(prompt)
+        hits = retriever.retrieve(task.cleaned_prompt)
         retrieve_ms = (time.perf_counter() - retrieve_start) * 1000
         existing_activation_ids = _load_recorded_activation_ids(cfg, session_id)
     except Exception:
@@ -118,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             component="user_prompt",
             event="no_hits",
             session_id=session_id,
-            prompt_excerpt=prompt[:120],
+            task_id=task.id,
+            prompt_excerpt=task.cleaned_prompt[:120],
             retrieve_ms=round(retrieve_ms, 3),
             embed_ms=round(retriever.last_diagnostics.embed_ms, 3),
             search_ms=round(retriever.last_diagnostics.search_ms, 3),
@@ -129,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    context = adapter.format_context(hits)
     try:
         activation_start = time.perf_counter()
         new_hits = [h for h in hits if h.skill.id not in existing_activation_ids]
@@ -139,13 +154,22 @@ def main(argv: list[str] | None = None) -> int:
             session_id,
             [{"skill_id": h.skill.id, "distance": h.distance} for h in hits],
         )
+        activation_records = record_activations(
+            store,
+            task=task,
+            hits=hits,
+            delivery_mode=DeliveryMode.CLAUDE_HOOK,
+            context_token_count=count_text_tokens(context),
+        )
         activation_record_ms = (time.perf_counter() - activation_start) * 1000
         log_debug_event(
             cfg,
             component="user_prompt",
             event="hits_returned",
             session_id=session_id,
-            prompt_excerpt=prompt[:120],
+            task_id=task.id,
+            activation_ids=[record.id for record in activation_records],
+            prompt_excerpt=task.cleaned_prompt[:120],
             hit_count=len(hits),
             new_hit_count=len(new_hits),
             skill_ids=[h.skill.id for h in hits],
@@ -163,7 +187,6 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass  # nice-to-have, not critical
 
-    context = adapter.format_context(hits)
     sys.stdout.write(context)
     sys.stdout.flush()
     return 0
@@ -259,83 +282,10 @@ def _is_shell_escape(prompt: str) -> bool:
     return False
 
 
-def _skill_title(activation: str, max_len: int = 60) -> str:
-    """Derive a short human-readable title from the activation text.
-
-    Used for the visible acknowledgment line so the user can see which
-    playbook fired. Trimmed to fit in one line of terminal output.
-    """
-    s = activation.strip()
-    # strip leading "When "
-    if s.lower().startswith("when "):
-        s = s[5:]
-    # cut at first period or comma
-    for stop in (". ", ", "):
-        i = s.find(stop)
-        if 10 < i < max_len:
-            s = s[:i]
-            break
-    if len(s) > max_len:
-        s = s[: max_len - 1].rstrip() + "…"
-    return s
-
-
 def _format_context(hits: list[RetrievedSkill]) -> str:
-    """Format retrieved skills as imperative playbooks to execute.
+    from muscle_memory.personal_loop import format_context
 
-    Two principles:
-      1. Imperative framing — "EXECUTE the steps", not "treat as hints".
-         Softening language gets the skill narrated back to the user
-         instead of actually run.
-      2. Visible acknowledgment — the wrapper tells Claude to prefix
-         its response with a one-line marker naming the playbook, so
-         the user can see in real time that muscle-memory is working.
-    """
-    titles = [_skill_title(h.skill.activation) for h in hits]
-    titles_list = " | ".join(f'"{t}"' for t in titles)
-
-    lines = [
-        "<muscle_memory>",
-        "These are verified playbooks extracted from past successful sessions",
-        "in this project. For each playbook below, if the `Activate when`",
-        "condition clearly matches the user's current situation, **EXECUTE the",
-        "Steps directly**: run the commands, make the edits, verify the result.",
-        "Do not just describe the steps to the user — actually perform them.",
-        "The user wants the problem fixed, not a list of instructions.",
-        "",
-        "If a playbook's `Activate when` clearly does NOT fit the current task,",
-        "ignore it and proceed normally.",
-        "",
-        "### Visibility protocol (required)",
-        "",
-        "Begin your response with ONE line in exactly this format so the user",
-        "can see which playbook fired:",
-        "",
-        "> 🧠 **muscle-memory**: executing playbook — <title>",
-        "",
-        f"Where `<title>` is one of: {titles_list}",
-        "",
-        "If NONE of the playbooks apply to the current task, do NOT emit any",
-        "muscle-memory marker. Just proceed normally with the user's request.",
-        "Do not explain muscle-memory or discuss the playbook metadata.",
-        "",
-    ]
-    for i, (hit, title) in enumerate(zip(hits, titles), start=1):
-        s = hit.skill
-        lines.append(
-            f'## Playbook {i} — "{title}"'
-            f" · {s.maturity.value}"
-            f" · {s.successes}/{s.invocations} successes"
-        )
-        lines.append(f"**Activate when:** {s.activation}")
-        lines.append("**Steps (execute in order):**")
-        lines.append(s.execution)
-        lines.append(f"**Done when:** {s.termination}")
-        if s.tool_hints:
-            lines.append(f"**Preferred tools:** {', '.join(s.tool_hints)}")
-        lines.append("")
-    lines.append("</muscle_memory>")
-    return "\n".join(lines)
+    return format_context(hits)
 
 
 def _record_activation(

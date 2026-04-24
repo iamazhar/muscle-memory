@@ -15,17 +15,25 @@ def test_top_level_help_is_trimmed() -> None:
 
     out = result.output
     assert "init" in out
-    assert "list" in out
-    assert "stats" in out
-    assert "bootstrap" in out
-    assert "refine" in out
-    assert "retrieve" in out
-    assert "ingest" in out
-    assert "maint" in out
-    assert "share" in out
-    assert "review" in out
-    assert "eval" in out
+    assert "learn" in out
+    assert "use" in out
+    assert "skills" in out
+    assert "show" in out
+    assert "status" in out
+    assert "doctor" in out
 
+    assert "│ retrieve" not in out
+    assert "│ list" not in out
+    assert "│ stats" not in out
+    assert "│ bootstrap" not in out
+    assert "│ refine" not in out
+    assert "│ ingest" not in out
+    assert "│ maint" not in out
+    assert "│ share" not in out
+    assert "│ review" not in out
+    assert "│ jobs" not in out
+    assert "│ eval" not in out
+    assert "│ simulate" not in out
     assert "│ hook" not in out
     assert "│ version" not in out
     assert "│ pause" not in out

@@ -53,6 +53,22 @@ class Outcome(str, Enum):
     UNKNOWN = "unknown"
 
 
+class DeliveryMode(str, Enum):
+    """How a skill was delivered to an agent."""
+
+    CLAUDE_HOOK = "claude-hook"
+    CODEX_USE = "codex-use"
+    MANUAL = "manual"
+
+
+class EvidenceConfidence(str, Enum):
+    """Confidence level for outcome and token measurements."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class Scope(str, Enum):
     """Where a skill is visible — per-project or user-wide."""
 
@@ -100,6 +116,8 @@ class Trajectory(BaseModel):
     user_followup: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     assistant_turns: list[str] = Field(default_factory=list)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
     def num_tool_calls(self) -> int:
         return len(self.tool_calls)
@@ -227,6 +245,50 @@ class Episode(BaseModel):
 
     # which skills were active during this episode (by id)
     activated_skills: list[str] = Field(default_factory=list)
+
+
+class TaskRecord(BaseModel):
+    """A captured user task before or during skill retrieval."""
+
+    id: str = Field(default_factory=_new_id)
+    raw_prompt: str
+    cleaned_prompt: str
+    intent_summary: str | None = None
+    harness: str = "generic"
+    project_path: str | None = None
+    session_id: str | None = None
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ActivationRecord(BaseModel):
+    """A skill offered or injected for a captured task."""
+
+    id: str = Field(default_factory=_new_id)
+    task_id: str
+    skill_id: str
+    distance: float | None = None
+    final_rank: float | None = None
+    delivery_mode: DeliveryMode
+    injected_token_count: int = Field(default=0, ge=0)
+    credited_outcome: Outcome | None = None
+    created_at: datetime = Field(default_factory=_now)
+    credited_at: datetime | None = None
+
+
+class MeasurementRecord(BaseModel):
+    """Outcome and token evidence for a captured task."""
+
+    id: str = Field(default_factory=_new_id)
+    task_id: str
+    outcome: Outcome = Outcome.UNKNOWN
+    confidence: EvidenceConfidence = EvidenceConfidence.LOW
+    reason: str = ""
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    injected_skill_tokens: int = Field(default=0, ge=0)
+    tool_call_count: int = Field(default=0, ge=0)
+    comparable: bool = False
+    measured_at: datetime = Field(default_factory=_now)
 
 
 class BackgroundJob(BaseModel):

@@ -7,9 +7,9 @@ dogfooded immediately.
 
 This demo is part of the supported dogfood surface. Claude Code still has the
 deepest runtime integration here, and Codex can use the same project setup plus
-explicit retrieval and transcript ingest. When a dogfood session drifts, start with
-`mm doctor`, then use the usual recovery commands: `mm maint pause`,
-`mm review list`, `mm jobs retry-failed`, and `mm maint resume`.
+explicit retrieval and transcript learning. When a dogfood session drifts, start
+with `mm status` and `mm doctor`; lower-level recovery commands are available
+under the advanced command groups.
 
 ## Why it exists
 
@@ -68,6 +68,6 @@ so the memory database lands in `demo/orbitops/.claude/mm.db`.
 2. Ask Claude to make a small change to the landing page or dashboard.
 3. Run `python3 check.py`.
 4. Verify both `/` and `/dashboard`.
-5. Repeat a few times and inspect `mm stats` plus `mm review list`.
+5. Repeat a few times and inspect `mm status` plus `mm skills`.
 
 See [demo/orbitops/DOGFOOD.md](../demo/orbitops/DOGFOOD.md) for prompt ideas.

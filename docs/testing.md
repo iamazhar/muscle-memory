@@ -24,14 +24,13 @@ behavioral suite remains the release proof for that live hook path. Codex is
 covered in the fast suites for setup and transcript ingest, not for automatic
 prompt-hook injection.
 
-If a Claude Code session needs recovery, use the operator commands we rely on
-in the rest of the repo:
+- `tests/test_status_proof.py` verifies that `mm status` distinguishes insufficient evidence from confidence-labeled outcome/token proof.
+- `tests/test_cli_use.py` verifies the Codex-friendly `mm use` path and canonical activation recording.
 
-- `mm maint pause`
-- `mm maint resume`
-- `mm doctor`
-- `mm review list`
-- `mm jobs retry-failed`
+If a Claude Code session needs recovery, use the operator commands we rely on
+in the rest of the repo. Start with `mm status` and `mm doctor`; if the
+diagnosis points to a lower-level problem, use the advanced `maint`, `review`,
+or `jobs` command groups.
 
 ## Running tests
 

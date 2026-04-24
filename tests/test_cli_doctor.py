@@ -135,7 +135,7 @@ def test_doctor_recommendations_include_debug_and_resume(tmp_path: Path) -> None
     data = json.loads(result.output)
     assert data["recommendations"] == [
         "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions.",
-        "Run `mm maint resume` before dogfooding if the project is paused.",
+        "Run advanced `mm maint resume` before dogfooding if the project is paused.",
     ]
 
     with patch("muscle_memory.cli._load_config", return_value=cfg):
@@ -143,4 +143,7 @@ def test_doctor_recommendations_include_debug_and_resume(tmp_path: Path) -> None
 
     assert result.exit_code == 0
     assert "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions." in result.output
-    assert "Run `mm maint resume` before dogfooding if the project is paused." in result.output
+    assert (
+        "Run advanced `mm maint resume` before dogfooding if the project is paused."
+        in result.output
+    )

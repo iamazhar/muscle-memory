@@ -213,3 +213,69 @@ def test_ingest_transcript_records_episode_without_extraction(tmp_path: Path) ->
     episodes = store.list_episodes(limit=10)
     assert len(episodes) == 1
     assert episodes[0].user_prompt == "run the tests"
+
+
+def test_learn_transcript_records_episode_without_extraction(tmp_path: Path) -> None:
+    project_root = tmp_path
+    (project_root / ".claude").mkdir()
+    cfg = _make_config(project_root)
+    Store(cfg.db_path, embedding_dims=4)
+
+    transcript = project_root / "session.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "user", "message": {"content": "run the tests"}}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "Trying pytest"},
+                                {
+                                    "type": "tool_use",
+                                    "id": "t1",
+                                    "name": "Bash",
+                                    "input": {"command": "pytest"},
+                                },
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "t1",
+                                    "content": "5 passed",
+                                }
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("muscle_memory.cli._load_config", return_value=cfg):
+        result = runner.invoke(
+            app,
+            [
+                "learn",
+                "--transcript",
+                str(transcript),
+                "--format",
+                "claude-jsonl",
+                "--no-extract",
+            ],
+        )
+
+    assert result.exit_code == 0
+    store = Store(cfg.db_path, embedding_dims=4)
+    episodes = store.list_episodes(limit=10)
+    assert len(episodes) == 1
+    assert episodes[0].user_prompt == "run the tests"

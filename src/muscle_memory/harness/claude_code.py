@@ -189,6 +189,8 @@ class ClaudeCodeHarness:
         tool_calls: list[ToolCall] = []
         assistant_turns: list[str] = []
         pending_by_id: dict[str, ToolCall] = {}
+        input_tokens: int | None = None
+        output_tokens: int | None = None
 
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -202,6 +204,27 @@ class ClaudeCodeHarness:
 
                 rec_type = rec.get("type")
                 msg = rec.get("message") or {}
+                usage = rec.get("usage") or msg.get("usage")
+                if isinstance(usage, dict):
+                    input_increment = _sum_usage_tokens(
+                        usage,
+                        (
+                            "input_tokens",
+                            "cache_creation_input_tokens",
+                            "cache_read_input_tokens",
+                        ),
+                    )
+                    raw_output = usage.get("output_tokens")
+                    if input_increment > 0:
+                        input_tokens = (
+                            input_increment
+                            if input_tokens is None
+                            else input_tokens + input_increment
+                        )
+                    if type(raw_output) is int and raw_output >= 0:
+                        output_tokens = (
+                            raw_output if output_tokens is None else output_tokens + raw_output
+                        )
 
                 if rec_type == "user":
                     content = msg.get("content")
@@ -258,54 +281,14 @@ class ClaudeCodeHarness:
             user_followup=" ".join(user_followups),
             tool_calls=tool_calls,
             assistant_turns=assistant_turns,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     def format_context(self, hits: list[RetrievedSkill]) -> str:
-        titles = [_skill_title(hit.skill.activation) for hit in hits]
-        titles_list = " | ".join(f'"{title}"' for title in titles)
+        from muscle_memory.personal_loop import format_context
 
-        lines = [
-            "<muscle_memory>",
-            "These are verified playbooks extracted from past successful sessions",
-            "in this project. For each playbook below, if the `Activate when`",
-            "condition clearly matches the user's current situation, **EXECUTE the",
-            "Steps directly**: run the commands, make the edits, verify the result.",
-            "Do not just describe the steps to the user — actually perform them.",
-            "The user wants the problem fixed, not a list of instructions.",
-            "",
-            "If a playbook's `Activate when` clearly does NOT fit the current task,",
-            "ignore it and proceed normally.",
-            "",
-            "### Visibility protocol (required)",
-            "",
-            "Begin your response with ONE line in exactly this format so the user",
-            "can see which playbook fired:",
-            "",
-            "> 🧠 **muscle-memory**: executing playbook — <title>",
-            "",
-            f"Where `<title>` is one of: {titles_list}",
-            "",
-            "If NONE of the playbooks apply to the current task, do NOT emit any",
-            "muscle-memory marker. Just proceed normally with the user's request.",
-            "Do not explain muscle-memory or discuss the playbook metadata.",
-            "",
-        ]
-        for index, (hit, title) in enumerate(zip(hits, titles), start=1):
-            skill = hit.skill
-            lines.append(
-                f'## Playbook {index} — "{title}"'
-                f" · {skill.maturity.value}"
-                f" · {skill.successes}/{skill.invocations} successes"
-            )
-            lines.append(f"**Activate when:** {skill.activation}")
-            lines.append("**Steps (execute in order):**")
-            lines.append(skill.execution)
-            lines.append(f"**Done when:** {skill.termination}")
-            if skill.tool_hints:
-                lines.append(f"**Preferred tools:** {', '.join(skill.tool_hints)}")
-            lines.append("")
-        lines.append("</muscle_memory>")
-        return "\n".join(lines)
+        return format_context(hits)
 
     def is_shell_escape(self, prompt: str) -> bool:
         s = prompt.strip()
@@ -368,15 +351,10 @@ def _flatten_content(content: Any) -> str:
     return str(content)
 
 
-def _skill_title(activation: str, max_len: int = 60) -> str:
-    s = activation.strip()
-    if s.lower().startswith("when "):
-        s = s[5:]
-    for stop in (". ", ", "):
-        i = s.find(stop)
-        if 10 < i < max_len:
-            s = s[:i]
-            break
-    if len(s) > max_len:
-        s = s[: max_len - 1].rstrip() + "…"
-    return s
+def _sum_usage_tokens(usage: dict[str, Any], keys: tuple[str, ...]) -> int:
+    total = 0
+    for key in keys:
+        value = usage.get(key)
+        if type(value) is int and value >= 0:
+            total += value
+    return total

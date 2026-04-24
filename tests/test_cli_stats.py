@@ -764,9 +764,9 @@ class TestAttentionMetrics:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["attention"]["next_actions"] == [
-            "Run `mm review list` to inspect quarantined candidates.",
-            "Run `mm jobs retry-failed` to retry failed background work.",
-            "Run `mm maint resume` before dogfooding if the project is paused.",
+            "Run advanced `mm review list` to inspect quarantined candidates.",
+            "Run advanced `mm jobs retry-failed` to retry failed background work.",
+            "Run advanced `mm maint resume` before dogfooding if the project is paused.",
         ]
 
         with (

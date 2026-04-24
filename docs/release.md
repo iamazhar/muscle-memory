@@ -27,10 +27,12 @@
 ## Recovery
 
 If a release candidate or live Claude Code session needs operator cleanup,
-pause the hooks, inspect the state, and resume only after the problem is clear:
+start with the core diagnostics, then use advanced repair commands only when
+the problem is clear:
 
-- `mm maint pause`
+- `mm status`
 - `mm doctor`
+- `mm maint pause`
 - `mm review list`
 - `mm jobs retry-failed`
 - `mm maint resume`

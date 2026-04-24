@@ -23,41 +23,48 @@ from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.eval.benchmark import _current_source_tree_sha256
-from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Outcome, Scope, Skill
+from muscle_memory.models import (
+    BackgroundJob,
+    DeliveryMode,
+    JobKind,
+    JobStatus,
+    Maturity,
+    Outcome,
+    Scope,
+    Skill,
+)
 
 console = Console()
 app = typer.Typer(
     name="mm",
-    help="muscle-memory: procedural memory for coding agents.",
+    help="muscle-memory: practiced skill for coding agents.",
     no_args_is_help=True,
     add_completion=False,
 )
 
-maint_app = typer.Typer(help="Maintenance, repair, and runtime controls.")
-app.add_typer(maint_app, name="maint")
+maint_app = typer.Typer(help="Advanced maintenance, repair, and runtime controls.")
+app.add_typer(maint_app, name="maint", hidden=True)
 
-share_app = typer.Typer(help="Import/export skills for sharing and backup.")
-app.add_typer(share_app, name="share")
+share_app = typer.Typer(help="Advanced import/export for skills.")
+app.add_typer(share_app, name="share", hidden=True)
 
-review_app = typer.Typer(help="Review quarantined candidate skills.")
-app.add_typer(review_app, name="review")
+review_app = typer.Typer(help="Advanced review for quarantined candidate skills.")
+app.add_typer(review_app, name="review", hidden=True)
 
-jobs_app = typer.Typer(help="Inspect and retry tracked background jobs.")
-app.add_typer(jobs_app, name="jobs")
+jobs_app = typer.Typer(help="Advanced inspection for background jobs.")
+app.add_typer(jobs_app, name="jobs", hidden=True)
 
-ingest_app = typer.Typer(help="Ingest transcripts or normalized episodes from any harness.")
-app.add_typer(ingest_app, name="ingest")
+ingest_app = typer.Typer(help="Advanced transcript and episode ingestion.")
+app.add_typer(ingest_app, name="ingest", hidden=True)
 
 hook_app = typer.Typer(help="Claude Code hook handlers (not for direct use).")
 app.add_typer(hook_app, name="hook", hidden=True)
 
-eval_app = typer.Typer(help="Evaluate outcome detection, retrieval, and skill impact.")
-app.add_typer(eval_app, name="eval")
+eval_app = typer.Typer(help="Advanced evaluation for outcome detection and skill impact.")
+app.add_typer(eval_app, name="eval", hidden=True)
 
-simulate_app = typer.Typer(
-    help="Synthetic dogfooding — drive skills through scoring without real sessions."
-)
-app.add_typer(simulate_app, name="simulate")
+simulate_app = typer.Typer(help="Advanced synthetic dogfooding without real sessions.")
+app.add_typer(simulate_app, name="simulate", hidden=True)
 
 
 # ----------------------------------------------------------------------
@@ -229,7 +236,7 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """muscle-memory: procedural memory for coding agents."""
+    """muscle-memory: practiced skill for coding agents."""
 
 
 @app.command(hidden=True)
@@ -320,13 +327,14 @@ def init(
     console.print(next_step)
 
 
-@app.command("list")
+@app.command("skills")
+@app.command("list", hidden=True)
 def list_skills(
     maturity: Maturity | None = typer.Option(None, "--maturity", "-m"),
     limit: int = typer.Option(50, "--limit", "-n"),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """List skills in the current project's database."""
+    """List the skills learned for this project."""
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills(maturity=maturity, limit=limit)
@@ -383,12 +391,79 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
     )
 
 
-@app.command()
+@app.command("use")
+def use_skill(
+    prompt: str = typer.Argument(..., help="Task to get practiced context for."),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Use practiced skill for a task."""
+    from muscle_memory.personal_loop import (
+        capture_task,
+        count_text_tokens,
+        format_context,
+        record_activations,
+    )
+    from muscle_memory.retriever import Retriever
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    task = capture_task(
+        store,
+        raw_prompt=prompt,
+        harness=cfg.harness,
+        project_path=str(cfg.project_root) if cfg.project_root is not None else None,
+    )
+    embedder = make_embedder(cfg)
+    hits = Retriever(store, embedder, cfg).retrieve(task.cleaned_prompt)
+    context = format_context(hits)
+    context_token_count = count_text_tokens(context)
+    activations = record_activations(
+        store,
+        task=task,
+        hits=hits,
+        delivery_mode=DeliveryMode.CODEX_USE if cfg.harness == "codex" else DeliveryMode.MANUAL,
+        context_token_count=context_token_count,
+    )
+
+    if as_json:
+        payload = {
+            "task": {
+                "id": task.id,
+                "cleaned_prompt": task.cleaned_prompt,
+                "harness": task.harness,
+            },
+            "context": context,
+            "context_token_count": context_token_count,
+            "hits": [
+                {
+                    **_skill_to_dict(hit.skill),
+                    "distance": hit.distance,
+                    "final_rank": hit.final_rank,
+                    "activation_id": activations[index].id,
+                    "activation": {
+                        "id": activations[index].id,
+                        "delivery_mode": activations[index].delivery_mode.value,
+                        "injected_token_count": activations[index].injected_token_count,
+                    },
+                }
+                for index, hit in enumerate(hits)
+            ],
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not hits:
+        console.print("[dim]No matching skills. Proceed normally.[/dim]")
+        return
+    console.print(context)
+
+
+@app.command(hidden=True)
 def retrieve(
     prompt: str = typer.Argument(..., help="Prompt/task to retrieve relevant skills for."),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """Retrieve relevant skills without relying on harness-specific prompt hooks."""
+    """Retrieve the practiced skills relevant to a task."""
     from muscle_memory.retriever import Retriever
 
     cfg = _load_config()
@@ -707,11 +782,14 @@ def log(
     console.print(table)
 
 
-@app.command()
+@app.command("status")
+@app.command("stats", hidden=True)
 def stats(
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
-    """Summarize the skill store with actionable metrics."""
+    """Show whether muscle-memory is improving outcomes and reuse."""
+    from muscle_memory.personal_loop import compute_proof_metrics
+
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills()
@@ -782,6 +860,7 @@ def stats(
     )
     debug_log_present = debug_log_path.exists()
     retrieval_telemetry = _read_retrieval_telemetry(debug_log_path)
+    proof = compute_proof_metrics(store)
 
     # Top and struggling skills
     top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][
@@ -829,6 +908,18 @@ def stats(
                 "refine": governance.refine_skill_ids,
                 "review": governance.review_skill_ids,
             },
+            "proof": {
+                "confidence": proof.confidence.value,
+                "comparable_tasks": proof.comparable_tasks,
+                "assisted_tasks": proof.assisted_tasks,
+                "unassisted_tasks": proof.unassisted_tasks,
+                "assisted_success_rate": proof.assisted_success_rate,
+                "unassisted_success_rate": proof.unassisted_success_rate,
+                "outcome_lift": proof.outcome_lift,
+                "token_reduction": proof.token_reduction,
+                "token_samples": proof.token_samples,
+                "unknown_outcomes": proof.unknown_outcomes,
+            },
             "top_skills": [_skill_to_dict(s) for s in top_skills],
             "struggling_skills": [_skill_to_dict(s) for s in struggling],
         }
@@ -846,6 +937,35 @@ def stats(
         f"   [bold]pool[/bold] {len(skills)}/{cfg.max_skills}"
     )
     console.print(Panel(header, title="muscle-memory"))
+
+    console.print(Rule("Proof"))
+    if proof.comparable_tasks < 10:
+        console.print(
+            f"  [yellow]insufficient evidence[/yellow]  ({proof.comparable_tasks} comparable tasks)"
+        )
+        console.print(
+            "  [dim]Need at least 10 comparable measured tasks with assisted "
+            "and unassisted examples.[/dim]"
+        )
+    else:
+        lift = (
+            f"{proof.outcome_lift:+.1%}"
+            if proof.outcome_lift is not None
+            else "not enough paired outcomes"
+        )
+        token_delta = (
+            f"{proof.token_reduction:.1%}"
+            if proof.token_reduction is not None
+            else "not enough token samples"
+        )
+        console.print(f"  [bold]outcome lift[/bold]    {lift}")
+        console.print(f"  [bold]token reduction[/bold] {token_delta}")
+        console.print(
+            f"  [bold]confidence[/bold]      {proof.confidence.value}"
+            f"  ({proof.comparable_tasks} comparable tasks)"
+        )
+        if proof.unknown_outcomes:
+            console.print(f"  [yellow]unknown outcomes[/yellow] {proof.unknown_outcomes}")
 
     # Empty store shortcut
     if not skills and not episodes:
@@ -906,13 +1026,13 @@ def stats(
     if pending_review:
         console.print(
             f"  [yellow]pending review[/yellow] {len(pending_review)} candidates"
-            "  (`mm review list` / `mm review approve`)"
+            "  (advanced: `mm review list` / `mm review approve`)"
         )
         attention_items += 1
     if inconsistent_counters:
         console.print(
             f"  [yellow]counter drift[/yellow] {len(inconsistent_counters)} skills"
-            "  (success/failure counts exceed activations; run `mm rescore`)"
+            "  (success/failure counts exceed activations; run `mm maint rescore`)"
         )
         attention_items += 1
     if stale:
@@ -933,13 +1053,14 @@ def stats(
         attention_items += 1
     if failed_jobs:
         console.print(
-            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry  (`mm jobs retry-failed`)"
+            f"  [red]failed jobs[/red]    {failed_jobs} job(s) need retry"
+            "  (advanced: `mm jobs retry-failed`)"
         )
         attention_items += 1
     if paused:
         console.print(
             "  [yellow]paused[/yellow]        project is paused"
-            "  (`mm maint resume` before dogfooding)"
+            "  (advanced: `mm maint resume` before dogfooding)"
         )
         attention_items += 1
     if governance.demote_skill_ids:
@@ -1086,7 +1207,7 @@ def doctor(
         console.print("[dim]Database missing. Run [bold]mm init[/bold] first.[/dim]")
 
 
-@app.command()
+@app.command(hidden=True)
 def refine(
     skill_id: str | None = typer.Argument(
         None, help="Skill id or prefix to refine. Omit with --auto to sweep."
@@ -1419,6 +1540,46 @@ def import_cmd(
 
 
 @app.command()
+def learn(
+    transcript: Path | None = typer.Option(
+        None,
+        "--transcript",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Transcript file to learn from. Omit to scan recent Claude Code history.",
+    ),
+    format: str = typer.Option("claude-jsonl", "--format", help="Transcript format."),
+    prompt: str | None = typer.Option(
+        None,
+        "--prompt",
+        help="Original user prompt for transcript formats that do not preserve it.",
+    ),
+    extract: bool = typer.Option(
+        True, "--extract/--no-extract", help="Extract skills after ingesting a transcript."
+    ),
+    days: int = typer.Option(30, "--days", "-d", help="Look back N days when scanning history."),
+    max_sessions: int = typer.Option(200, "--max-sessions"),
+    project_only: bool = typer.Option(
+        True,
+        "--project-only/--all-projects",
+        help="Only consider sessions from the current project when scanning history.",
+    ),
+) -> None:
+    """Learn skills from recent history or an explicit transcript."""
+    if transcript is not None:
+        ingest_transcript_cmd(
+            transcript=transcript,
+            format=format,
+            prompt=prompt,
+            extract=extract,
+        )
+        return
+
+    bootstrap(days=days, max_sessions=max_sessions, project_only=project_only)
+
+
+@app.command(hidden=True)
 def bootstrap(
     days: int = typer.Option(30, "--days", "-d", help="Look back N days."),
     max_sessions: int = typer.Option(200, "--max-sessions"),
@@ -2085,11 +2246,15 @@ def _candidate_review_metadata(skill: Skill) -> dict[str, Any]:
 def _attention_recommendations(*, pending_review: int, failed_jobs: int, paused: bool) -> list[str]:
     recommendations: list[str] = []
     if pending_review:
-        recommendations.append("Run `mm review list` to inspect quarantined candidates.")
+        recommendations.append("Run advanced `mm review list` to inspect quarantined candidates.")
     if failed_jobs:
-        recommendations.append("Run `mm jobs retry-failed` to retry failed background work.")
+        recommendations.append(
+            "Run advanced `mm jobs retry-failed` to retry failed background work."
+        )
     if paused:
-        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+        recommendations.append(
+            "Run advanced `mm maint resume` before dogfooding if the project is paused."
+        )
     return recommendations
 
 
@@ -2100,7 +2265,9 @@ def _doctor_recommendations(*, debug_enabled: bool, paused: bool) -> list[str]:
             "Enable MM_DEBUG=1 while validating Claude Code retrieval decisions."
         )
     if paused:
-        recommendations.append("Run `mm maint resume` before dogfooding if the project is paused.")
+        recommendations.append(
+            "Run advanced `mm maint resume` before dogfooding if the project is paused."
+        )
     return recommendations
 
 

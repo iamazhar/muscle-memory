@@ -25,11 +25,10 @@ mm --version
 ```
 
 The deepest runtime surface is still the Claude Code harness, and the
-behavioral release proof is still Claude-specific. Codex setup and ingest
-flows are also supported in the fast suites. If a session gets into a bad
-state, the same recovery commands used in production docs apply here:
-`mm maint pause`, `mm maint resume`, `mm doctor`, `mm review list`, and
-`mm jobs retry-failed`.
+behavioral release proof is still Claude-specific. Codex setup and transcript
+learning flows are also supported in the fast suites. Start diagnosis with
+`mm status` and `mm doctor`; the lower-level repair commands live behind the
+advanced `maint`, `review`, and `jobs` groups.
 
 To verify the first release gate locally, run the release preflight:
 
@@ -100,12 +99,12 @@ Two options:
 
 ```bash
 # option 1: via the editable venv (after ./scripts/dev-sync)
-.venv/bin/mm list
+.venv/bin/mm skills
 .venv/bin/mm init
 .venv/bin/mm init --harness codex
 
 # option 2: via PYTHONPATH
-PYTHONPATH=src python -m muscle_memory list
+PYTHONPATH=src python -m muscle_memory skills
 PYTHONPATH=src python -m muscle_memory retrieve "run the tests" --json
 ```
 
