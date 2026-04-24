@@ -132,7 +132,7 @@ jobs:
             dist/*.tar.gz
 
       - name: Upload python distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-dist
           path: dist/*
@@ -165,7 +165,7 @@ jobs:
         run: uv run python scripts/check_release_binaries.py "${{ inputs.version }}" dist --target "${{ matrix.target }}"
 
       - name: Upload standalone binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: dist/mm-*
