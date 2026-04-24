@@ -23,7 +23,16 @@ from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.eval.benchmark import _current_source_tree_sha256
-from muscle_memory.models import BackgroundJob, JobKind, JobStatus, Maturity, Outcome, Scope, Skill
+from muscle_memory.models import (
+    BackgroundJob,
+    DeliveryMode,
+    JobKind,
+    JobStatus,
+    Maturity,
+    Outcome,
+    Scope,
+    Skill,
+)
 
 console = Console()
 app = typer.Typer(
@@ -382,7 +391,69 @@ def show(skill_id: str = typer.Argument(..., help="Skill id or prefix.")) -> Non
     )
 
 
-@app.command()
+@app.command("use")
+def use_skill(
+    prompt: str = typer.Argument(..., help="Task to get practiced context for."),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON."),
+) -> None:
+    """Use practiced skill for a task."""
+    from muscle_memory.personal_loop import (
+        capture_task,
+        count_text_tokens,
+        format_context,
+        record_activations,
+    )
+    from muscle_memory.retriever import Retriever
+
+    cfg = _load_config()
+    store = _open_store(cfg)
+    task = capture_task(
+        store,
+        raw_prompt=prompt,
+        harness=cfg.harness,
+        project_path=str(cfg.project_root) if cfg.project_root is not None else None,
+    )
+    embedder = make_embedder(cfg)
+    hits = Retriever(store, embedder, cfg).retrieve(task.cleaned_prompt)
+    context = format_context(hits)
+    context_token_count = count_text_tokens(context)
+    activations = record_activations(
+        store,
+        task=task,
+        hits=hits,
+        delivery_mode=DeliveryMode.CODEX_USE if cfg.harness == "codex" else DeliveryMode.MANUAL,
+        context_token_count=context_token_count,
+    )
+
+    if as_json:
+        payload = {
+            "task": {
+                "id": task.id,
+                "cleaned_prompt": task.cleaned_prompt,
+                "harness": task.harness,
+            },
+            "context": context,
+            "context_token_count": context_token_count,
+            "hits": [
+                {
+                    **_skill_to_dict(hit.skill),
+                    "distance": hit.distance,
+                    "final_rank": hit.final_rank,
+                    "activation_id": activations[index].id,
+                }
+                for index, hit in enumerate(hits)
+            ],
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    if not hits:
+        console.print("[dim]No matching skills. Proceed normally.[/dim]")
+        return
+    console.print(context)
+
+
+@app.command(hidden=True)
 def retrieve(
     prompt: str = typer.Argument(..., help="Prompt/task to retrieve relevant skills for."),
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),

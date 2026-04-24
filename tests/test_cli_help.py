@@ -16,12 +16,13 @@ def test_top_level_help_is_trimmed() -> None:
     out = result.output
     assert "init" in out
     assert "learn" in out
-    assert "retrieve" in out
+    assert "use" in out
     assert "skills" in out
     assert "show" in out
     assert "status" in out
     assert "doctor" in out
 
+    assert "│ retrieve" not in out
     assert "│ list" not in out
     assert "│ stats" not in out
     assert "│ bootstrap" not in out
