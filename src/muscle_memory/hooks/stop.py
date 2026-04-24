@@ -95,7 +95,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if task is not None:
             activation_records = store.list_activations_for_task(task.id)
-            activated = [record.skill_id for record in activation_records]
+            if activation_records:
+                activated = [record.skill_id for record in activation_records]
+            else:
+                activated = _load_activations(cfg, session_id)
         else:
             activation_records = []
             activated = _load_activations(cfg, session_id)
@@ -118,19 +121,31 @@ def main(argv: list[str] | None = None) -> int:
         store.add_episode(episode)
         updated_skills = Scorer(store, max_skills=cfg.max_skills).credit_episode(episode)
         if task is not None:
-            store.credit_activations(task.id, activated, signal.outcome)
-            injected_tokens = sum(record.injected_token_count for record in activation_records)
-            add_measurement_for_task(
-                store,
-                task=task,
-                outcome=signal.outcome,
-                reason="; ".join(signal.reasons),
-                input_tokens=trajectory.input_tokens,
-                output_tokens=trajectory.output_tokens,
-                injected_skill_tokens=injected_tokens,
-                tool_call_count=len(trajectory.tool_calls),
-                comparable=bool(trajectory.tool_calls),
-            )
+            try:
+                store.credit_activations(task.id, activated, signal.outcome)
+                injected_tokens = sum(
+                    record.injected_token_count for record in activation_records
+                )
+                add_measurement_for_task(
+                    store,
+                    task=task,
+                    outcome=signal.outcome,
+                    reason="; ".join(signal.reasons),
+                    input_tokens=trajectory.input_tokens,
+                    output_tokens=trajectory.output_tokens,
+                    injected_skill_tokens=injected_tokens,
+                    tool_call_count=len(trajectory.tool_calls),
+                    comparable=bool(trajectory.tool_calls),
+                )
+            except Exception as exc:
+                log_debug_event(
+                    cfg,
+                    component="stop",
+                    event="measurement_record_failed",
+                    session_id=session_id,
+                    task_id=task.id,
+                    error=str(exc),
+                )
         log_debug_event(
             cfg,
             component="stop",

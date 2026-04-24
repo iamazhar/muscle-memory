@@ -87,6 +87,45 @@ def test_user_prompt_hook_records_task_and_activation(
     assert activations[0].delivery_mode is DeliveryMode.CLAUDE_HOOK
 
 
+def test_user_prompt_hook_does_not_duplicate_canonical_activation_for_same_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path
+    (project_root / ".claude").mkdir()
+    cfg = _config(project_root)
+    store = Store(cfg.db_path, embedding_dims=4)
+    embedder = DummyEmbedder()
+    skill = _seed_skill(store, embedder)
+    payload = {
+        "session_id": "session-1",
+        "cwd": str(project_root),
+        "prompt": "pytest import errors",
+    }
+
+    with (
+        patch("muscle_memory.hooks.user_prompt.Config.load", return_value=cfg),
+        patch("muscle_memory.hooks.user_prompt.make_embedder", return_value=embedder),
+    ):
+        monkeypatch.setattr("sys.stdin", _stdin(payload))
+        assert user_prompt.main([]) == 0
+        monkeypatch.setattr("sys.stdin", _stdin(payload))
+        assert user_prompt.main([]) == 0
+
+    tasks = store.list_tasks(limit=10)
+    activations = [
+        activation
+        for task in tasks
+        for activation in store.list_activations_for_task(task.id)
+    ]
+    assert len(tasks) == 2
+    assert len(activations) == 1
+    assert activations[0].skill_id == skill.id
+    updated_skill = store.get_skill(skill.id)
+    assert updated_skill is not None
+    assert updated_skill.invocations == 3
+    assert updated_skill.successes == 2
+
+
 def test_stop_hook_credits_canonical_activation_and_records_measurement(
     tmp_path: Path,
     monkeypatch,
@@ -177,6 +216,151 @@ def test_stop_hook_credits_canonical_activation_and_records_measurement(
     assert measurement is not None
     assert measurement.outcome is Outcome.SUCCESS
     assert measurement.injected_skill_tokens == 40
+
+
+def test_stop_hook_still_spawns_extraction_when_measurement_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path
+    (project_root / ".claude").mkdir()
+    cfg = _config(project_root)
+    store = Store(cfg.db_path, embedding_dims=4)
+    embedder = DummyEmbedder()
+    skill = _seed_skill(store, embedder)
+
+    from muscle_memory.personal_loop import capture_task, record_activations
+    from muscle_memory.retriever import RetrievedSkill
+
+    task = capture_task(
+        store,
+        raw_prompt="pytest import errors",
+        cleaned_prompt="pytest import errors",
+        harness="claude-code",
+        project_path=str(project_root),
+        session_id="session-1",
+    )
+    record_activations(
+        store,
+        task=task,
+        hits=[RetrievedSkill(skill=skill, distance=0.2, score_bonus=0.1)],
+        delivery_mode=DeliveryMode.CLAUDE_HOOK,
+        context_token_count=40,
+    )
+    transcript = _write_success_transcript(project_root)
+    payload = {
+        "session_id": "session-1",
+        "cwd": str(project_root),
+        "transcript_path": str(transcript),
+    }
+
+    monkeypatch.setattr("sys.stdin", _stdin(payload))
+    with (
+        patch("muscle_memory.hooks.stop.Config.load", return_value=cfg),
+        patch(
+            "muscle_memory.hooks.stop.add_measurement_for_task",
+            side_effect=RuntimeError("measurement failed"),
+        ),
+        patch("muscle_memory.hooks.stop._fire_async_extraction") as fire_async,
+    ):
+        exit_code = stop.main([])
+
+    assert exit_code == 0
+    assert fire_async.called
+    jobs = store.list_jobs(limit=None)
+    assert len(jobs) == 1
+
+
+def test_stop_hook_falls_back_to_sidecar_when_task_has_no_canonical_activations(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path
+    (project_root / ".claude").mkdir()
+    cfg = _config(project_root)
+    store = Store(cfg.db_path, embedding_dims=4)
+    embedder = DummyEmbedder()
+    skill = _seed_skill(store, embedder)
+
+    from muscle_memory.personal_loop import capture_task
+
+    capture_task(
+        store,
+        raw_prompt="pytest import errors",
+        cleaned_prompt="pytest import errors",
+        harness="claude-code",
+        project_path=str(project_root),
+        session_id="session-1",
+    )
+    sidecar_dir = cfg.db_path.parent / "mm.activations"
+    sidecar_dir.mkdir()
+    (sidecar_dir / "session-1.json").write_text(
+        json.dumps([{"skill_id": skill.id, "distance": 0.2}]),
+        encoding="utf-8",
+    )
+    transcript = _write_success_transcript(project_root)
+    payload = {
+        "session_id": "session-1",
+        "cwd": str(project_root),
+        "transcript_path": str(transcript),
+    }
+
+    monkeypatch.setattr("sys.stdin", _stdin(payload))
+    with (
+        patch("muscle_memory.hooks.stop.Config.load", return_value=cfg),
+        patch("muscle_memory.hooks.stop._fire_async_extraction"),
+    ):
+        exit_code = stop.main([])
+
+    assert exit_code == 0
+    updated_skill = store.get_skill(skill.id)
+    assert updated_skill is not None
+    assert updated_skill.invocations == 2
+    assert updated_skill.successes == 3
+
+
+def _write_success_transcript(project_root: Path) -> Path:
+    transcript = project_root / "session.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {"type": "user", "message": {"content": "pytest import errors"}}
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": "t1",
+                                    "name": "Bash",
+                                    "input": {"command": "pytest"},
+                                }
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "t1",
+                                    "content": "5 passed in 1.0s",
+                                }
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return transcript
 
 
 def _stdin(payload: dict):
