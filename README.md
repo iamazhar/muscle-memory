@@ -11,7 +11,7 @@
 
 `muscle-memory` gives coding agents practiced skill. It turns past successful work into compact, reusable **Skills**: executable playbooks with activation conditions, steps, and termination criteria. The goal is simple: better outcomes, less rediscovery, and fewer tokens than an agent that starts from scratch every session.
 
-Instead of dumping prose into `CLAUDE.md` files that bloat every context, `muscle-memory` retrieves only the relevant playbook when the task calls for it. Claude Code has the deepest runtime integration today, and Codex is supported for setup, explicit retrieval, and offline transcript ingest.
+Instead of dumping prose into `CLAUDE.md` files that bloat every context, `muscle-memory` retrieves only the relevant playbook when the task calls for it. Claude Code has the deepest runtime integration today, and Codex is supported for setup, explicit `mm use`, and offline transcript ingest.
 
 Inspired by [ProcMEM (arxiv:2602.01869)](https://arxiv.org/abs/2602.01869), but purpose-built for coding agents.
 
@@ -92,7 +92,10 @@ mm init --harness codex
 # learn from recent Claude Code history
 mm learn --days 30
 
-# retrieve practiced skill for any harness
+# use practiced skill for any harness, especially Codex
+mm use "run the tests in this repo"
+
+# compatibility search output for scripts
 mm retrieve "run the tests in this repo" --json
 
 # learn from an explicit transcript
@@ -109,8 +112,8 @@ The primary loop is intentionally small:
 
 - `mm init` connects a project to a harness.
 - `mm learn` turns session history or transcripts into reusable skill candidates.
-- `mm retrieve` brings back the relevant skill for the current task.
-- `mm status` shows whether the store is producing reuse, successful outcomes, and token savings.
+- `mm use` emits compact practiced context for a task and records the activation.
+- `mm status` shows whether the store is producing reuse, successful outcomes, and token savings with confidence labels.
 - `mm skills` and `mm show` let you inspect the compact playbooks directly.
 
 Advanced operator commands still exist for repair, review, jobs, evaluation, and imports, but they are not part of the normal workflow.
@@ -129,18 +132,18 @@ Run `mm init` in a real terminal to choose between Claude Code and Codex. The se
 For Claude Code runtime integration, `mm init --harness claude-code` installs hooks into `.claude/settings.json` and uses the existing Claude Code session to capture prompts/transcripts.
 
 For Codex, `mm init --harness codex` initializes the project database and saved harness config, but does not install automatic prompt hooks yet. Use:
-- `mm retrieve ...` for explicit retrieval before prompting Codex
+- `mm use ...` for explicit practiced context before prompting Codex
 - `mm learn --transcript ./codex-task.jsonl --format codex-jsonl --prompt "..."`
 
 For other harnesses, initialize with `mm init --harness generic` and use:
-- `mm retrieve ...` for explicit retrieval before prompting your agent
+- `mm use ...` for explicit practiced context before prompting your agent
 - `mm learn --transcript ...` for offline learning
 
 For extraction/refinement, the default LLM backend is still `claude-code`. If you prefer API-key-based extraction, set `MM_LLM_PROVIDER=openai` and `OPENAI_API_KEY=***`.
 
 ## How it works
 
-The core engine is harness-agnostic: retrieval, scoring, extraction, and storage live in the same memory layer regardless of runtime. The diagram below shows the Claude Code adapter path; other harnesses can use explicit `mm retrieve` plus offline `mm learn --transcript ...`.
+The core engine is harness-agnostic: retrieval, scoring, extraction, and storage live in the same memory layer regardless of runtime. The diagram below shows the Claude Code adapter path; other harnesses can use explicit `mm use` plus offline `mm learn --transcript ...`.
 
 ```
 ┌────────────────────────── Claude Code Session ────────────────────────────┐
