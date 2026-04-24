@@ -10,6 +10,7 @@ from muscle_memory.config import Config
 from muscle_memory.db import Store
 from muscle_memory.models import Episode, Outcome, Trajectory
 from muscle_memory.outcomes import infer_outcome
+from muscle_memory.personal_loop import add_measurement_for_task, capture_task
 
 
 def episode_from_transcript(
@@ -99,6 +100,11 @@ def ingest_transcript_file(
         prompt_override=prompt_override,
     )
     store.add_episode(episode)
+    _record_measurement_for_episode(
+        episode,
+        store=store,
+        harness=transcript_format.replace("-jsonl", ""),
+    )
     added = extract_skills_for_episode(episode, config=config, store=store) if extract else 0
     return episode, added
 
@@ -110,6 +116,7 @@ def ingest_episode_file(
     if episode.project_path is None and config.project_root is not None:
         episode.project_path = str(config.project_root)
     store.add_episode(episode)
+    _record_measurement_for_episode(episode, store=store, harness=config.harness)
     added = extract_skills_for_episode(episode, config=config, store=store) if extract else 0
     return episode, added
 
@@ -131,6 +138,37 @@ def extract_skills_for_episode(episode: Episode, *, config: Config, store: Store
         if was_added:
             added += 1
     return added
+
+
+def _record_measurement_for_episode(
+    episode: Episode,
+    *,
+    store: Store,
+    harness: str,
+) -> None:
+    task = None
+    if episode.session_id:
+        task = store.find_latest_task_by_session(episode.session_id)
+    if task is None:
+        task = capture_task(
+            store,
+            raw_prompt=episode.user_prompt,
+            cleaned_prompt=episode.user_prompt,
+            harness=harness,
+            project_path=episode.project_path,
+            session_id=episode.session_id,
+        )
+    add_measurement_for_task(
+        store,
+        task=task,
+        outcome=episode.outcome,
+        reason="transcript ingest",
+        input_tokens=episode.trajectory.input_tokens,
+        output_tokens=episode.trajectory.output_tokens,
+        injected_skill_tokens=0,
+        tool_call_count=episode.trajectory.num_tool_calls(),
+        comparable=episode.trajectory.num_tool_calls() > 0,
+    )
 
 
 def _validate_transcript_signal(transcript_format: str, trajectory: Trajectory) -> None:

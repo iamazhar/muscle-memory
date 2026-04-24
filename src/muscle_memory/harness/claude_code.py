@@ -189,6 +189,8 @@ class ClaudeCodeHarness:
         tool_calls: list[ToolCall] = []
         assistant_turns: list[str] = []
         pending_by_id: dict[str, ToolCall] = {}
+        input_tokens: int | None = None
+        output_tokens: int | None = None
 
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -202,6 +204,14 @@ class ClaudeCodeHarness:
 
                 rec_type = rec.get("type")
                 msg = rec.get("message") or {}
+                usage = rec.get("usage") or msg.get("usage")
+                if isinstance(usage, dict):
+                    raw_input = usage.get("input_tokens")
+                    raw_output = usage.get("output_tokens")
+                    if isinstance(raw_input, int):
+                        input_tokens = raw_input
+                    if isinstance(raw_output, int):
+                        output_tokens = raw_output
 
                 if rec_type == "user":
                     content = msg.get("content")
@@ -258,6 +268,8 @@ class ClaudeCodeHarness:
             user_followup=" ".join(user_followups),
             tool_calls=tool_calls,
             assistant_turns=assistant_turns,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     def format_context(self, hits: list[RetrievedSkill]) -> str:

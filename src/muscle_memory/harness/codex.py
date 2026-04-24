@@ -52,6 +52,8 @@ class CodexHarness:
     def parse_transcript(self, path: Path) -> Trajectory:
         assistant_turns: list[str] = []
         tool_calls: list[ToolCall] = []
+        input_tokens: int | None = None
+        output_tokens: int | None = None
 
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -62,7 +64,19 @@ class CodexHarness:
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if not isinstance(record, dict) or record.get("type") != "item.completed":
+                if not isinstance(record, dict):
+                    continue
+                if record.get("type") == "turn.completed":
+                    usage = record.get("usage")
+                    if isinstance(usage, dict):
+                        raw_input = usage.get("input_tokens")
+                        raw_output = usage.get("output_tokens")
+                        if isinstance(raw_input, int):
+                            input_tokens = raw_input
+                        if isinstance(raw_output, int):
+                            output_tokens = raw_output
+                    continue
+                if record.get("type") != "item.completed":
                     continue
                 item = record.get("item")
                 if not isinstance(item, dict):
@@ -95,6 +109,8 @@ class CodexHarness:
             user_prompt="",
             tool_calls=tool_calls,
             assistant_turns=assistant_turns,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     def format_context(self, hits: list[RetrievedSkill]) -> str:
