@@ -85,7 +85,12 @@ def test_claude_parser_captures_turn_usage(tmp_path: Path) -> None:
                     {
                         "type": "assistant",
                         "message": {
-                            "usage": {"input_tokens": 100, "output_tokens": 20},
+                            "usage": {
+                                "input_tokens": 100,
+                                "cache_creation_input_tokens": 7,
+                                "cache_read_input_tokens": 13,
+                                "output_tokens": 20,
+                            },
                             "content": [{"type": "text", "text": "Running tests."}],
                         },
                     }
@@ -93,7 +98,12 @@ def test_claude_parser_captures_turn_usage(tmp_path: Path) -> None:
                 json.dumps(
                     {
                         "type": "assistant",
-                        "usage": {"input_tokens": 50, "output_tokens": 10},
+                        "usage": {
+                            "input_tokens": 50,
+                            "cache_creation_input_tokens": 3,
+                            "cache_read_input_tokens": 4,
+                            "output_tokens": 10,
+                        },
                         "message": {
                             "content": [{"type": "text", "text": "Tests passed."}]
                         },
@@ -106,7 +116,7 @@ def test_claude_parser_captures_turn_usage(tmp_path: Path) -> None:
 
     trajectory = ClaudeCodeHarness().parse_transcript(transcript)
 
-    assert trajectory.input_tokens == 150
+    assert trajectory.input_tokens == 177
     assert trajectory.output_tokens == 30
 
 
@@ -229,7 +239,7 @@ def test_ingest_preserves_existing_injected_token_evidence(tmp_path: Path) -> No
             task_id=task.id,
             skill_id="skill-1",
             delivery_mode=DeliveryMode.CODEX_USE,
-            injected_token_count=77,
+            injected_token_count=40,
         )
     )
     store.add_measurement(

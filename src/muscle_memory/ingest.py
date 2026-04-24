@@ -177,13 +177,9 @@ def _injected_tokens_for_task(store: Store, task_id: str) -> int:
         activation.injected_token_count
         for activation in store.list_activations_for_task(task_id)
     )
-    if activation_tokens > 0:
-        return activation_tokens
-
     existing = store.get_measurement_for_task(task_id)
-    if existing is not None:
-        return existing.injected_skill_tokens
-    return 0
+    existing_tokens = existing.injected_skill_tokens if existing is not None else 0
+    return max(activation_tokens, existing_tokens)
 
 
 def _validate_transcript_signal(transcript_format: str, trajectory: Trajectory) -> None:

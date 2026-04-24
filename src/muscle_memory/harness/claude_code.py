@@ -206,11 +206,20 @@ class ClaudeCodeHarness:
                 msg = rec.get("message") or {}
                 usage = rec.get("usage") or msg.get("usage")
                 if isinstance(usage, dict):
-                    raw_input = usage.get("input_tokens")
+                    input_increment = _sum_usage_tokens(
+                        usage,
+                        (
+                            "input_tokens",
+                            "cache_creation_input_tokens",
+                            "cache_read_input_tokens",
+                        ),
+                    )
                     raw_output = usage.get("output_tokens")
-                    if type(raw_input) is int and raw_input >= 0:
+                    if input_increment > 0:
                         input_tokens = (
-                            raw_input if input_tokens is None else input_tokens + raw_input
+                            input_increment
+                            if input_tokens is None
+                            else input_tokens + input_increment
                         )
                     if type(raw_output) is int and raw_output >= 0:
                         output_tokens = (
@@ -342,3 +351,12 @@ def _flatten_content(content: Any) -> str:
                 parts.append(str(block))
         return "\n".join(parts)
     return str(content)
+
+
+def _sum_usage_tokens(usage: dict[str, Any], keys: tuple[str, ...]) -> int:
+    total = 0
+    for key in keys:
+        value = usage.get(key)
+        if type(value) is int and value >= 0:
+            total += value
+    return total
