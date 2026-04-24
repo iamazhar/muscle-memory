@@ -217,14 +217,9 @@ def _success_rate(measurements: list[MeasurementRecord]) -> float | None:
 
 
 def _measured_token_total(measurement: MeasurementRecord) -> int | None:
-    if measurement.input_tokens is None and measurement.output_tokens is None:
+    if measurement.input_tokens is None or measurement.output_tokens is None:
         return None
-    input_tokens = (
-        measurement.input_tokens
-        if measurement.input_tokens is not None
-        else measurement.injected_skill_tokens
-    )
-    return input_tokens + (measurement.output_tokens or 0)
+    return measurement.input_tokens + measurement.output_tokens
 
 
 def _proof_confidence(

@@ -205,6 +205,36 @@ def test_high_confidence_requires_paired_token_samples(tmp_path: Path) -> None:
     assert proof.confidence is EvidenceConfidence.MEDIUM
 
 
+def test_token_reduction_requires_complete_token_samples(tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir()
+    store = Store(tmp_path / ".claude" / "mm.db", embedding_dims=4)
+    for index in range(25):
+        _task(
+            store,
+            f"assisted {index}",
+            assisted=True,
+            outcome=Outcome.SUCCESS,
+            tokens=700,
+            output_tokens=None,
+        )
+    for index in range(25):
+        _task(
+            store,
+            f"unassisted {index}",
+            assisted=False,
+            outcome=Outcome.FAILURE,
+            tokens=1000,
+            output_tokens=None,
+        )
+
+    proof = compute_proof_metrics(store)
+
+    assert proof.comparable_tasks == 50
+    assert proof.token_samples == 0
+    assert proof.token_reduction is None
+    assert proof.confidence is EvidenceConfidence.MEDIUM
+
+
 def test_status_json_empty_store_has_stable_proof_contract(tmp_path: Path) -> None:
     project_root = tmp_path
     (project_root / ".claude").mkdir()
