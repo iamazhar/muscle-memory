@@ -208,10 +208,16 @@ class ClaudeCodeHarness:
                 if isinstance(usage, dict):
                     raw_input = usage.get("input_tokens")
                     raw_output = usage.get("output_tokens")
-                    if isinstance(raw_input, int):
-                        input_tokens = raw_input
-                    if isinstance(raw_output, int):
-                        output_tokens = raw_output
+                    if type(raw_input) is int and raw_input >= 0:
+                        input_tokens = (
+                            raw_input if input_tokens is None else input_tokens + raw_input
+                        )
+                    if type(raw_output) is int and raw_output >= 0:
+                        output_tokens = (
+                            raw_output
+                            if output_tokens is None
+                            else output_tokens + raw_output
+                        )
 
                 if rec_type == "user":
                     content = msg.get("content")
