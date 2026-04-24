@@ -36,7 +36,7 @@ from muscle_memory.models import (
 if TYPE_CHECKING:
     from muscle_memory.eval import EvalLabel
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _l2_distance(a: list[float], b: list[float]) -> float:
@@ -195,6 +195,8 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS activations (
                     id TEXT PRIMARY KEY,
@@ -203,7 +205,8 @@ class Store:
                     distance REAL,
                     final_rank REAL,
                     delivery_mode TEXT NOT NULL,
-                    injected_token_count INTEGER NOT NULL DEFAULT 0,
+                    injected_token_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_token_count >= 0),
                     credited_outcome TEXT,
                     created_at TEXT NOT NULL,
                     credited_at TEXT
@@ -217,15 +220,19 @@ class Store:
                     outcome TEXT NOT NULL DEFAULT 'unknown',
                     confidence TEXT NOT NULL DEFAULT 'low',
                     reason TEXT NOT NULL DEFAULT '',
-                    input_tokens INTEGER,
-                    output_tokens INTEGER,
-                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0,
-                    tool_call_count INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_skill_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (tool_call_count >= 0),
                     comparable INTEGER NOT NULL DEFAULT 0,
                     measured_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
                 CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
                 """
             )
 
@@ -359,6 +366,8 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS activations (
                     id TEXT PRIMARY KEY,
@@ -367,7 +376,8 @@ class Store:
                     distance REAL,
                     final_rank REAL,
                     delivery_mode TEXT NOT NULL,
-                    injected_token_count INTEGER NOT NULL DEFAULT 0,
+                    injected_token_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_token_count >= 0),
                     credited_outcome TEXT,
                     created_at TEXT NOT NULL,
                     credited_at TEXT
@@ -381,19 +391,113 @@ class Store:
                     outcome TEXT NOT NULL DEFAULT 'unknown',
                     confidence TEXT NOT NULL DEFAULT 'low',
                     reason TEXT NOT NULL DEFAULT '',
-                    input_tokens INTEGER,
-                    output_tokens INTEGER,
-                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0,
-                    tool_call_count INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                        CHECK (injected_skill_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (tool_call_count >= 0),
                     comparable INTEGER NOT NULL DEFAULT 0,
                     measured_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
                 CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
+                """
+            )
+
+        if current_version == 7:
+            self._rebuild_activations_with_constraints(conn)
+            self._rebuild_measurements_with_constraints(conn)
+
+        if current_version < 8:
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tasks_session_created
+                    ON tasks(session_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                    ON measurements(measured_at DESC);
                 """
             )
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+
+    def _rebuild_activations_with_constraints(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            ALTER TABLE activations RENAME TO activations_old;
+
+            CREATE TABLE activations (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                skill_id TEXT NOT NULL,
+                distance REAL,
+                final_rank REAL,
+                delivery_mode TEXT NOT NULL,
+                injected_token_count INTEGER NOT NULL DEFAULT 0
+                    CHECK (injected_token_count >= 0),
+                credited_outcome TEXT,
+                created_at TEXT NOT NULL,
+                credited_at TEXT
+            );
+
+            INSERT INTO activations (
+                id, task_id, skill_id, distance, final_rank, delivery_mode,
+                injected_token_count, credited_outcome, created_at, credited_at
+            )
+            SELECT
+                id, task_id, skill_id, distance, final_rank, delivery_mode,
+                injected_token_count, credited_outcome, created_at, credited_at
+            FROM activations_old;
+
+            DROP TABLE activations_old;
+
+            CREATE INDEX IF NOT EXISTS idx_activations_task ON activations(task_id);
+            CREATE INDEX IF NOT EXISTS idx_activations_skill ON activations(skill_id);
+            """
+        )
+
+    def _rebuild_measurements_with_constraints(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            ALTER TABLE measurements RENAME TO measurements_old;
+
+            CREATE TABLE measurements (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                outcome TEXT NOT NULL DEFAULT 'unknown',
+                confidence TEXT NOT NULL DEFAULT 'low',
+                reason TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                injected_skill_tokens INTEGER NOT NULL DEFAULT 0
+                    CHECK (injected_skill_tokens >= 0),
+                tool_call_count INTEGER NOT NULL DEFAULT 0
+                    CHECK (tool_call_count >= 0),
+                comparable INTEGER NOT NULL DEFAULT 0,
+                measured_at TEXT NOT NULL
+            );
+
+            INSERT INTO measurements (
+                id, task_id, outcome, confidence, reason, input_tokens,
+                output_tokens, injected_skill_tokens, tool_call_count,
+                comparable, measured_at
+            )
+            SELECT
+                id, task_id, outcome, confidence, reason, input_tokens,
+                output_tokens, injected_skill_tokens, tool_call_count,
+                comparable, measured_at
+            FROM measurements_old;
+
+            DROP TABLE measurements_old;
+
+            CREATE INDEX IF NOT EXISTS idx_measurements_outcome ON measurements(outcome);
+            CREATE INDEX IF NOT EXISTS idx_measurements_comparable ON measurements(comparable);
+            CREATE INDEX IF NOT EXISTS idx_measurements_measured_at
+                ON measurements(measured_at DESC);
+            """
+        )
 
     # ------------------------------------------------------------------
     # skills
@@ -823,11 +927,21 @@ class Store:
         with self.batch() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO measurements (
+                INSERT INTO measurements (
                     id, task_id, outcome, confidence, reason, input_tokens,
                     output_tokens, injected_skill_tokens, tool_call_count,
                     comparable, measured_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    outcome = excluded.outcome,
+                    confidence = excluded.confidence,
+                    reason = excluded.reason,
+                    input_tokens = excluded.input_tokens,
+                    output_tokens = excluded.output_tokens,
+                    injected_skill_tokens = excluded.injected_skill_tokens,
+                    tool_call_count = excluded.tool_call_count,
+                    comparable = excluded.comparable,
+                    measured_at = excluded.measured_at
                 """,
                 (
                     measurement.id,

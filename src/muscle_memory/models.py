@@ -116,8 +116,8 @@ class Trajectory(BaseModel):
     user_followup: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
     assistant_turns: list[str] = Field(default_factory=list)
-    input_tokens: int | None = None
-    output_tokens: int | None = None
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
     def num_tool_calls(self) -> int:
         return len(self.tool_calls)
@@ -269,7 +269,7 @@ class ActivationRecord(BaseModel):
     distance: float | None = None
     final_rank: float | None = None
     delivery_mode: DeliveryMode
-    injected_token_count: int = 0
+    injected_token_count: int = Field(default=0, ge=0)
     credited_outcome: Outcome | None = None
     created_at: datetime = Field(default_factory=_now)
     credited_at: datetime | None = None
@@ -283,10 +283,10 @@ class MeasurementRecord(BaseModel):
     outcome: Outcome = Outcome.UNKNOWN
     confidence: EvidenceConfidence = EvidenceConfidence.LOW
     reason: str = ""
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    injected_skill_tokens: int = 0
-    tool_call_count: int = 0
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    injected_skill_tokens: int = Field(default=0, ge=0)
+    tool_call_count: int = Field(default=0, ge=0)
     comparable: bool = False
     measured_at: datetime = Field(default_factory=_now)
 
