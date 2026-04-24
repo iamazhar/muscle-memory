@@ -259,83 +259,10 @@ def _is_shell_escape(prompt: str) -> bool:
     return False
 
 
-def _skill_title(activation: str, max_len: int = 60) -> str:
-    """Derive a short human-readable title from the activation text.
-
-    Used for the visible acknowledgment line so the user can see which
-    playbook fired. Trimmed to fit in one line of terminal output.
-    """
-    s = activation.strip()
-    # strip leading "When "
-    if s.lower().startswith("when "):
-        s = s[5:]
-    # cut at first period or comma
-    for stop in (". ", ", "):
-        i = s.find(stop)
-        if 10 < i < max_len:
-            s = s[:i]
-            break
-    if len(s) > max_len:
-        s = s[: max_len - 1].rstrip() + "…"
-    return s
-
-
 def _format_context(hits: list[RetrievedSkill]) -> str:
-    """Format retrieved skills as imperative playbooks to execute.
+    from muscle_memory.personal_loop import format_context
 
-    Two principles:
-      1. Imperative framing — "EXECUTE the steps", not "treat as hints".
-         Softening language gets the skill narrated back to the user
-         instead of actually run.
-      2. Visible acknowledgment — the wrapper tells Claude to prefix
-         its response with a one-line marker naming the playbook, so
-         the user can see in real time that muscle-memory is working.
-    """
-    titles = [_skill_title(h.skill.activation) for h in hits]
-    titles_list = " | ".join(f'"{t}"' for t in titles)
-
-    lines = [
-        "<muscle_memory>",
-        "These are verified playbooks extracted from past successful sessions",
-        "in this project. For each playbook below, if the `Activate when`",
-        "condition clearly matches the user's current situation, **EXECUTE the",
-        "Steps directly**: run the commands, make the edits, verify the result.",
-        "Do not just describe the steps to the user — actually perform them.",
-        "The user wants the problem fixed, not a list of instructions.",
-        "",
-        "If a playbook's `Activate when` clearly does NOT fit the current task,",
-        "ignore it and proceed normally.",
-        "",
-        "### Visibility protocol (required)",
-        "",
-        "Begin your response with ONE line in exactly this format so the user",
-        "can see which playbook fired:",
-        "",
-        "> 🧠 **muscle-memory**: executing playbook — <title>",
-        "",
-        f"Where `<title>` is one of: {titles_list}",
-        "",
-        "If NONE of the playbooks apply to the current task, do NOT emit any",
-        "muscle-memory marker. Just proceed normally with the user's request.",
-        "Do not explain muscle-memory or discuss the playbook metadata.",
-        "",
-    ]
-    for i, (hit, title) in enumerate(zip(hits, titles), start=1):
-        s = hit.skill
-        lines.append(
-            f'## Playbook {i} — "{title}"'
-            f" · {s.maturity.value}"
-            f" · {s.successes}/{s.invocations} successes"
-        )
-        lines.append(f"**Activate when:** {s.activation}")
-        lines.append("**Steps (execute in order):**")
-        lines.append(s.execution)
-        lines.append(f"**Done when:** {s.termination}")
-        if s.tool_hints:
-            lines.append(f"**Preferred tools:** {', '.join(s.tool_hints)}")
-        lines.append("")
-    lines.append("</muscle_memory>")
-    return "\n".join(lines)
+    return format_context(hits)
 
 
 def _record_activation(

@@ -261,51 +261,9 @@ class ClaudeCodeHarness:
         )
 
     def format_context(self, hits: list[RetrievedSkill]) -> str:
-        titles = [_skill_title(hit.skill.activation) for hit in hits]
-        titles_list = " | ".join(f'"{title}"' for title in titles)
+        from muscle_memory.personal_loop import format_context
 
-        lines = [
-            "<muscle_memory>",
-            "These are verified playbooks extracted from past successful sessions",
-            "in this project. For each playbook below, if the `Activate when`",
-            "condition clearly matches the user's current situation, **EXECUTE the",
-            "Steps directly**: run the commands, make the edits, verify the result.",
-            "Do not just describe the steps to the user — actually perform them.",
-            "The user wants the problem fixed, not a list of instructions.",
-            "",
-            "If a playbook's `Activate when` clearly does NOT fit the current task,",
-            "ignore it and proceed normally.",
-            "",
-            "### Visibility protocol (required)",
-            "",
-            "Begin your response with ONE line in exactly this format so the user",
-            "can see which playbook fired:",
-            "",
-            "> 🧠 **muscle-memory**: executing playbook — <title>",
-            "",
-            f"Where `<title>` is one of: {titles_list}",
-            "",
-            "If NONE of the playbooks apply to the current task, do NOT emit any",
-            "muscle-memory marker. Just proceed normally with the user's request.",
-            "Do not explain muscle-memory or discuss the playbook metadata.",
-            "",
-        ]
-        for index, (hit, title) in enumerate(zip(hits, titles), start=1):
-            skill = hit.skill
-            lines.append(
-                f'## Playbook {index} — "{title}"'
-                f" · {skill.maturity.value}"
-                f" · {skill.successes}/{skill.invocations} successes"
-            )
-            lines.append(f"**Activate when:** {skill.activation}")
-            lines.append("**Steps (execute in order):**")
-            lines.append(skill.execution)
-            lines.append(f"**Done when:** {skill.termination}")
-            if skill.tool_hints:
-                lines.append(f"**Preferred tools:** {', '.join(skill.tool_hints)}")
-            lines.append("")
-        lines.append("</muscle_memory>")
-        return "\n".join(lines)
+        return format_context(hits)
 
     def is_shell_escape(self, prompt: str) -> bool:
         s = prompt.strip()
@@ -366,17 +324,3 @@ def _flatten_content(content: Any) -> str:
                 parts.append(str(block))
         return "\n".join(parts)
     return str(content)
-
-
-def _skill_title(activation: str, max_len: int = 60) -> str:
-    s = activation.strip()
-    if s.lower().startswith("when "):
-        s = s[5:]
-    for stop in (". ", ", "):
-        i = s.find(stop)
-        if 10 < i < max_len:
-            s = s[:i]
-            break
-    if len(s) > max_len:
-        s = s[: max_len - 1].rstrip() + "…"
-    return s

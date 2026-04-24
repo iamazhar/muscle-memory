@@ -440,6 +440,11 @@ def use_skill(
                     "distance": hit.distance,
                     "final_rank": hit.final_rank,
                     "activation_id": activations[index].id,
+                    "activation": {
+                        "id": activations[index].id,
+                        "delivery_mode": activations[index].delivery_mode.value,
+                        "injected_token_count": activations[index].injected_token_count,
+                    },
                 }
                 for index, hit in enumerate(hits)
             ],
