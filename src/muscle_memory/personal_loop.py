@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from muscle_memory.db import Store
 from muscle_memory.models import (
     ActivationRecord,
@@ -133,6 +135,101 @@ def record_activations(
         store.add_activation(record)
         records.append(record)
     return records
+
+
+@dataclass(frozen=True)
+class ProofMetrics:
+    confidence: EvidenceConfidence
+    comparable_tasks: int
+    assisted_tasks: int
+    unassisted_tasks: int
+    assisted_success_rate: float | None
+    unassisted_success_rate: float | None
+    outcome_lift: float | None
+    token_reduction: float | None
+    token_samples: int
+    unknown_outcomes: int
+
+
+def compute_proof_metrics(store: Store) -> ProofMetrics:
+    measurements = [m for m in store.list_measurements(limit=10_000) if m.comparable]
+    task_ids_with_activation = {
+        task.id
+        for task in store.list_tasks(limit=None)
+        if store.list_activations_for_task(task.id)
+    }
+    assisted = [m for m in measurements if m.task_id in task_ids_with_activation]
+    unassisted = [m for m in measurements if m.task_id not in task_ids_with_activation]
+    assisted_known = [m for m in assisted if m.outcome is not Outcome.UNKNOWN]
+    unassisted_known = [m for m in unassisted if m.outcome is not Outcome.UNKNOWN]
+
+    assisted_success_rate = _success_rate(assisted_known)
+    unassisted_success_rate = _success_rate(unassisted_known)
+    outcome_lift = (
+        assisted_success_rate - unassisted_success_rate
+        if assisted_success_rate is not None and unassisted_success_rate is not None
+        else None
+    )
+
+    assisted_tokens = [m.input_tokens for m in assisted if m.input_tokens is not None]
+    unassisted_tokens = [m.input_tokens for m in unassisted if m.input_tokens is not None]
+    token_reduction = None
+    if assisted_tokens and unassisted_tokens:
+        assisted_avg = sum(assisted_tokens) / len(assisted_tokens)
+        unassisted_avg = sum(unassisted_tokens) / len(unassisted_tokens)
+        if unassisted_avg > 0:
+            token_reduction = (unassisted_avg - assisted_avg) / unassisted_avg
+
+    token_samples = len(assisted_tokens) + len(unassisted_tokens)
+    unknowns = sum(1 for m in measurements if m.outcome is Outcome.UNKNOWN)
+    confidence = _proof_confidence(
+        comparable_count=len(measurements),
+        assisted_count=len(assisted),
+        unassisted_count=len(unassisted),
+        token_samples=token_samples,
+        unknowns=unknowns,
+    )
+
+    return ProofMetrics(
+        confidence=confidence,
+        comparable_tasks=len(measurements),
+        assisted_tasks=len(assisted),
+        unassisted_tasks=len(unassisted),
+        assisted_success_rate=assisted_success_rate,
+        unassisted_success_rate=unassisted_success_rate,
+        outcome_lift=outcome_lift,
+        token_reduction=token_reduction,
+        token_samples=token_samples,
+        unknown_outcomes=unknowns,
+    )
+
+
+def _success_rate(measurements: list[MeasurementRecord]) -> float | None:
+    if not measurements:
+        return None
+    successes = sum(1 for m in measurements if m.outcome is Outcome.SUCCESS)
+    return successes / len(measurements)
+
+
+def _proof_confidence(
+    *,
+    comparable_count: int,
+    assisted_count: int,
+    unassisted_count: int,
+    token_samples: int,
+    unknowns: int,
+) -> EvidenceConfidence:
+    if (
+        comparable_count >= 50
+        and assisted_count >= 10
+        and unassisted_count >= 10
+        and token_samples >= 20
+        and unknowns / comparable_count <= 0.2
+    ):
+        return EvidenceConfidence.HIGH
+    if comparable_count >= 10 and assisted_count >= 3 and unassisted_count >= 3:
+        return EvidenceConfidence.MEDIUM
+    return EvidenceConfidence.LOW
 
 
 def add_measurement_for_task(

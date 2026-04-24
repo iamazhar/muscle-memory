@@ -788,6 +788,8 @@ def stats(
     as_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
     """Show whether muscle-memory is improving outcomes and reuse."""
+    from muscle_memory.personal_loop import compute_proof_metrics
+
     cfg = _load_config()
     store = _open_store(cfg)
     skills = store.list_skills()
@@ -858,6 +860,7 @@ def stats(
     )
     debug_log_present = debug_log_path.exists()
     retrieval_telemetry = _read_retrieval_telemetry(debug_log_path)
+    proof = compute_proof_metrics(store)
 
     # Top and struggling skills
     top_skills = [s for s in skills if s.maturity is not Maturity.CANDIDATE and s.invocations >= 2][
@@ -905,6 +908,18 @@ def stats(
                 "refine": governance.refine_skill_ids,
                 "review": governance.review_skill_ids,
             },
+            "proof": {
+                "confidence": proof.confidence.value,
+                "comparable_tasks": proof.comparable_tasks,
+                "assisted_tasks": proof.assisted_tasks,
+                "unassisted_tasks": proof.unassisted_tasks,
+                "assisted_success_rate": proof.assisted_success_rate,
+                "unassisted_success_rate": proof.unassisted_success_rate,
+                "outcome_lift": proof.outcome_lift,
+                "token_reduction": proof.token_reduction,
+                "token_samples": proof.token_samples,
+                "unknown_outcomes": proof.unknown_outcomes,
+            },
             "top_skills": [_skill_to_dict(s) for s in top_skills],
             "struggling_skills": [_skill_to_dict(s) for s in struggling],
         }
@@ -922,6 +937,36 @@ def stats(
         f"   [bold]pool[/bold] {len(skills)}/{cfg.max_skills}"
     )
     console.print(Panel(header, title="muscle-memory"))
+
+    console.print(Rule("Proof"))
+    if proof.comparable_tasks < 10:
+        console.print(
+            "  [yellow]insufficient evidence[/yellow]"
+            f"  ({proof.comparable_tasks} comparable tasks)"
+        )
+        console.print(
+            "  [dim]Need at least 10 comparable measured tasks with assisted "
+            "and unassisted examples.[/dim]"
+        )
+    else:
+        lift = (
+            f"{proof.outcome_lift:+.1%}"
+            if proof.outcome_lift is not None
+            else "not enough paired outcomes"
+        )
+        token_delta = (
+            f"{proof.token_reduction:.1%}"
+            if proof.token_reduction is not None
+            else "not enough token samples"
+        )
+        console.print(f"  [bold]outcome lift[/bold]    {lift}")
+        console.print(f"  [bold]token reduction[/bold] {token_delta}")
+        console.print(
+            f"  [bold]confidence[/bold]      {proof.confidence.value}"
+            f"  ({proof.comparable_tasks} comparable tasks)"
+        )
+        if proof.unknown_outcomes:
+            console.print(f"  [yellow]unknown outcomes[/yellow] {proof.unknown_outcomes}")
 
     # Empty store shortcut
     if not skills and not episodes:
