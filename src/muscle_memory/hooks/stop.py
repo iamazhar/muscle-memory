@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             activation_records = []
             activated = _load_activations(cfg, session_id)
         activated = list(dict.fromkeys(activated))
+        using_sidecar_fallback = task is not None and bool(activated) and not activation_records
         signal = infer_outcome(
             trajectory,
             user_followup=trajectory.user_followup,
@@ -124,20 +125,30 @@ def main(argv: list[str] | None = None) -> int:
         if task is not None:
             try:
                 store.credit_activations(task.id, activated, signal.outcome)
-                injected_tokens = sum(
-                    record.injected_token_count for record in activation_records
-                )
-                add_measurement_for_task(
-                    store,
-                    task=task,
-                    outcome=signal.outcome,
-                    reason="; ".join(signal.reasons),
-                    input_tokens=trajectory.input_tokens,
-                    output_tokens=trajectory.output_tokens,
-                    injected_skill_tokens=injected_tokens,
-                    tool_call_count=len(trajectory.tool_calls),
-                    comparable=bool(trajectory.tool_calls),
-                )
+                if using_sidecar_fallback:
+                    log_debug_event(
+                        cfg,
+                        component="stop",
+                        event="measurement_skipped_missing_activation_tokens",
+                        session_id=session_id,
+                        task_id=task.id,
+                        activated_skills=activated,
+                    )
+                else:
+                    injected_tokens = sum(
+                        record.injected_token_count for record in activation_records
+                    )
+                    add_measurement_for_task(
+                        store,
+                        task=task,
+                        outcome=signal.outcome,
+                        reason="; ".join(signal.reasons),
+                        input_tokens=trajectory.input_tokens,
+                        output_tokens=trajectory.output_tokens,
+                        injected_skill_tokens=injected_tokens,
+                        tool_call_count=len(trajectory.tool_calls),
+                        comparable=bool(trajectory.tool_calls),
+                    )
             except Exception as exc:
                 log_debug_event(
                     cfg,

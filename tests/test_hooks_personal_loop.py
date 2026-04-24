@@ -330,15 +330,19 @@ def test_stop_hook_falls_back_to_sidecar_when_task_has_no_canonical_activations(
     monkeypatch.setattr("sys.stdin", _stdin(payload))
     with (
         patch("muscle_memory.hooks.stop.Config.load", return_value=cfg),
-        patch("muscle_memory.hooks.stop._fire_async_extraction"),
+        patch("muscle_memory.hooks.stop._fire_async_extraction") as fire_async,
     ):
         exit_code = stop.main([])
 
     assert exit_code == 0
+    assert fire_async.called
     updated_skill = store.get_skill(skill.id)
     assert updated_skill is not None
     assert updated_skill.invocations == 2
     assert updated_skill.successes == 3
+    task = store.find_latest_task_by_session("session-1")
+    assert task is not None
+    assert store.get_measurement_for_task(task.id) is None
 
 
 def _write_success_transcript(project_root: Path) -> Path:
