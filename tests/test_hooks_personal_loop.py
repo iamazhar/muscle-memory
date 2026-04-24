@@ -87,7 +87,7 @@ def test_user_prompt_hook_records_task_and_activation(
     assert activations[0].delivery_mode is DeliveryMode.CLAUDE_HOOK
 
 
-def test_user_prompt_hook_does_not_duplicate_canonical_activation_for_same_session(
+def test_repeated_user_prompt_hook_keeps_token_evidence_and_dedupes_credit(
     tmp_path: Path, monkeypatch
 ) -> None:
     project_root = tmp_path
@@ -118,12 +118,34 @@ def test_user_prompt_hook_does_not_duplicate_canonical_activation_for_same_sessi
         for activation in store.list_activations_for_task(task.id)
     ]
     assert len(tasks) == 2
-    assert len(activations) == 1
-    assert activations[0].skill_id == skill.id
+    assert len(activations) == 2
+    assert {activation.skill_id for activation in activations} == {skill.id}
+    latest_task = tasks[0]
+    latest_activations = store.list_activations_for_task(latest_task.id)
+    assert len(latest_activations) == 1
+    assert latest_activations[0].injected_token_count > 0
     updated_skill = store.get_skill(skill.id)
     assert updated_skill is not None
     assert updated_skill.invocations == 3
     assert updated_skill.successes == 2
+
+    transcript = _write_success_transcript(project_root)
+    payload["transcript_path"] = str(transcript)
+    monkeypatch.setattr("sys.stdin", _stdin(payload))
+    with (
+        patch("muscle_memory.hooks.stop.Config.load", return_value=cfg),
+        patch("muscle_memory.hooks.stop._fire_async_extraction"),
+    ):
+        assert stop.main([]) == 0
+
+    credited_skill = store.get_skill(skill.id)
+    assert credited_skill is not None
+    assert credited_skill.invocations == 3
+    assert credited_skill.successes == 3
+    assert credited_skill.successes <= credited_skill.invocations
+    measurement = store.get_measurement_for_task(latest_task.id)
+    assert measurement is not None
+    assert measurement.injected_skill_tokens > 0
 
 
 def test_stop_hook_credits_canonical_activation_and_records_measurement(

@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         activation_records = record_activations(
             store,
             task=task,
-            hits=new_hits,
+            hits=hits,
             delivery_mode=DeliveryMode.CLAUDE_HOOK,
             context_token_count=count_text_tokens(context),
         )

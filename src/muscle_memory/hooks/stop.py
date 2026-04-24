@@ -102,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             activation_records = []
             activated = _load_activations(cfg, session_id)
+        activated = list(dict.fromkeys(activated))
         signal = infer_outcome(
             trajectory,
             user_followup=trajectory.user_followup,
