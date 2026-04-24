@@ -408,3 +408,138 @@ def test_schema_migration_adds_constraints_to_version_7_personal_loop_tables(
                 datetime(2026, 4, 23, 12, 3, tzinfo=UTC).isoformat(),
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("bad_activation_count", "bad_measurement_tokens"),
+    [(-1, 100), (5, -1)],
+)
+def test_schema_migration_rejects_invalid_v7_rows_without_mutating_schema(
+    tmp_path,
+    bad_activation_count: int,
+    bad_measurement_tokens: int,
+) -> None:
+    db_path = tmp_path / "mm.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY
+            );
+
+            CREATE TABLE tasks (
+                id TEXT PRIMARY KEY,
+                raw_prompt TEXT NOT NULL,
+                cleaned_prompt TEXT NOT NULL,
+                intent_summary TEXT,
+                harness TEXT NOT NULL DEFAULT 'generic',
+                project_path TEXT,
+                session_id TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE activations (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                skill_id TEXT NOT NULL,
+                distance REAL,
+                final_rank REAL,
+                delivery_mode TEXT NOT NULL,
+                injected_token_count INTEGER NOT NULL DEFAULT 0,
+                credited_outcome TEXT,
+                created_at TEXT NOT NULL,
+                credited_at TEXT
+            );
+
+            CREATE TABLE measurements (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+                outcome TEXT NOT NULL DEFAULT 'unknown',
+                confidence TEXT NOT NULL DEFAULT 'low',
+                reason TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                injected_skill_tokens INTEGER NOT NULL DEFAULT 0,
+                tool_call_count INTEGER NOT NULL DEFAULT 0,
+                comparable INTEGER NOT NULL DEFAULT 0,
+                measured_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute("INSERT INTO schema_version (version) VALUES (7)")
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                id, raw_prompt, cleaned_prompt, harness, session_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "task-1",
+                "run tests",
+                "run tests",
+                "codex",
+                "session-1",
+                datetime(2026, 4, 23, 12, 0, tzinfo=UTC).isoformat(),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO activations (
+                id, task_id, skill_id, delivery_mode,
+                injected_token_count, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "activation-1",
+                "task-1",
+                "skill-1",
+                DeliveryMode.CODEX_USE.value,
+                bad_activation_count,
+                datetime(2026, 4, 23, 12, 1, tzinfo=UTC).isoformat(),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO measurements (
+                id, task_id, outcome, confidence, reason, input_tokens,
+                output_tokens, injected_skill_tokens, tool_call_count,
+                comparable, measured_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "measurement-1",
+                "task-1",
+                Outcome.SUCCESS.value,
+                EvidenceConfidence.HIGH.value,
+                "pytest passed",
+                bad_measurement_tokens,
+                25,
+                5,
+                3,
+                1,
+                datetime(2026, 4, 23, 12, 2, tzinfo=UTC).isoformat(),
+            ),
+        )
+
+    with pytest.raises(RuntimeError, match="Cannot migrate v7 personal loop tables"):
+        Store(db_path, embedding_dims=4)
+
+    with sqlite3.connect(db_path) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                """
+            )
+        }
+        activation_count = conn.execute("SELECT COUNT(*) FROM activations").fetchone()[0]
+        measurement_count = conn.execute("SELECT COUNT(*) FROM measurements").fetchone()[0]
+
+    assert "activations" in tables
+    assert "measurements" in tables
+    assert "activations_old" not in tables
+    assert "measurements_old" not in tables
+    assert activation_count == 1
+    assert measurement_count == 1

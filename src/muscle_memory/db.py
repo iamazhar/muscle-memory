@@ -408,6 +408,7 @@ class Store:
             )
 
         if current_version == 7:
+            self._validate_v7_personal_loop_constraints(conn)
             self._rebuild_activations_with_constraints(conn)
             self._rebuild_measurements_with_constraints(conn)
 
@@ -422,6 +423,36 @@ class Store:
             )
 
         conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+
+    def _validate_v7_personal_loop_constraints(self, conn: sqlite3.Connection) -> None:
+        activation = conn.execute(
+            """
+            SELECT id FROM activations
+            WHERE injected_token_count < 0
+            LIMIT 1
+            """
+        ).fetchone()
+        if activation is not None:
+            raise RuntimeError(
+                "Cannot migrate v7 personal loop tables: "
+                "activations.injected_token_count contains negative values"
+            )
+
+        measurement = conn.execute(
+            """
+            SELECT id FROM measurements
+            WHERE input_tokens < 0
+               OR output_tokens < 0
+               OR injected_skill_tokens < 0
+               OR tool_call_count < 0
+            LIMIT 1
+            """
+        ).fetchone()
+        if measurement is not None:
+            raise RuntimeError(
+                "Cannot migrate v7 personal loop tables: "
+                "measurements token/count columns contain negative values"
+            )
 
     def _rebuild_activations_with_constraints(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
