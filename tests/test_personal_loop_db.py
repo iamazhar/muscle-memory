@@ -76,6 +76,7 @@ def test_store_round_trips_task_activation_and_measurement(tmp_db: Store) -> Non
     assert len(activations) == 1
     assert activations[0].skill_id == "skill-1"
     assert activations[0].credited_outcome is None
+    assert tmp_db.list_task_ids_with_activations() == {task.id}
 
     tmp_db.credit_activations(task.id, ["skill-1"], Outcome.SUCCESS)
     credited = tmp_db.list_activations_for_task(task.id)[0]

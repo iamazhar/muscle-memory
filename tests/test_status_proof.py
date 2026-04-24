@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from muscle_memory.cli import app
@@ -41,6 +42,7 @@ def _task(
     assisted: bool,
     outcome: Outcome,
     tokens: int | None,
+    output_tokens: int | None = 100,
     comparable: bool = True,
 ) -> None:
     task = TaskRecord(
@@ -66,7 +68,7 @@ def _task(
             confidence=EvidenceConfidence.HIGH,
             reason="test fixture",
             input_tokens=tokens,
-            output_tokens=100,
+            output_tokens=output_tokens,
             injected_skill_tokens=25 if assisted else 0,
             tool_call_count=2,
             comparable=comparable,
@@ -100,7 +102,7 @@ def test_status_json_includes_proof_metrics(tmp_path: Path) -> None:
     assert proof["assisted_success_rate"] == 1.0
     assert proof["unassisted_success_rate"] == 0.0
     assert proof["outcome_lift"] == 1.0
-    assert proof["token_reduction"] == 0.3
+    assert proof["token_reduction"] == pytest.approx(3 / 11)
     assert proof["token_samples"] == 10
     assert proof["unknown_outcomes"] == 0
 
@@ -156,6 +158,51 @@ def test_proof_metrics_high_confidence_requires_low_unknown_rate(tmp_path: Path)
     assert proof.token_samples == 50
     assert proof.unknown_outcomes == 10
     assert proof.confidence is EvidenceConfidence.HIGH
+
+
+def test_proof_confidence_requires_known_paired_outcomes(tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir()
+    store = Store(tmp_path / ".claude" / "mm.db", embedding_dims=4)
+    for index in range(5):
+        _task(store, f"assisted {index}", assisted=True, outcome=Outcome.UNKNOWN, tokens=700)
+    for index in range(5):
+        _task(
+            store,
+            f"unassisted {index}",
+            assisted=False,
+            outcome=Outcome.UNKNOWN,
+            tokens=1000,
+        )
+
+    proof = compute_proof_metrics(store)
+
+    assert proof.comparable_tasks == 10
+    assert proof.assisted_success_rate is None
+    assert proof.unassisted_success_rate is None
+    assert proof.outcome_lift is None
+    assert proof.confidence is EvidenceConfidence.LOW
+
+
+def test_high_confidence_requires_paired_token_samples(tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir()
+    store = Store(tmp_path / ".claude" / "mm.db", embedding_dims=4)
+    for index in range(10):
+        _task(store, f"assisted {index}", assisted=True, outcome=Outcome.SUCCESS, tokens=700)
+    for index in range(40):
+        _task(
+            store,
+            f"unassisted {index}",
+            assisted=False,
+            outcome=Outcome.FAILURE,
+            tokens=None,
+            output_tokens=None,
+        )
+
+    proof = compute_proof_metrics(store)
+
+    assert proof.comparable_tasks == 50
+    assert proof.token_reduction is None
+    assert proof.confidence is EvidenceConfidence.MEDIUM
 
 
 def test_status_json_empty_store_has_stable_proof_contract(tmp_path: Path) -> None:

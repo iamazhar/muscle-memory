@@ -152,12 +152,8 @@ class ProofMetrics:
 
 
 def compute_proof_metrics(store: Store) -> ProofMetrics:
-    measurements = [m for m in store.list_measurements(limit=10_000) if m.comparable]
-    task_ids_with_activation = {
-        task.id
-        for task in store.list_tasks(limit=None)
-        if store.list_activations_for_task(task.id)
-    }
+    measurements = [m for m in store.list_measurements(limit=None) if m.comparable]
+    task_ids_with_activation = store.list_task_ids_with_activations()
     assisted = [m for m in measurements if m.task_id in task_ids_with_activation]
     unassisted = [m for m in measurements if m.task_id not in task_ids_with_activation]
     assisted_known = [m for m in assisted if m.outcome is not Outcome.UNKNOWN]
@@ -171,8 +167,14 @@ def compute_proof_metrics(store: Store) -> ProofMetrics:
         else None
     )
 
-    assisted_tokens = [m.input_tokens for m in assisted if m.input_tokens is not None]
-    unassisted_tokens = [m.input_tokens for m in unassisted if m.input_tokens is not None]
+    assisted_tokens = [
+        token_total for m in assisted if (token_total := _measured_token_total(m)) is not None
+    ]
+    unassisted_tokens = [
+        token_total
+        for m in unassisted
+        if (token_total := _measured_token_total(m)) is not None
+    ]
     token_reduction = None
     if assisted_tokens and unassisted_tokens:
         assisted_avg = sum(assisted_tokens) / len(assisted_tokens)
@@ -184,9 +186,12 @@ def compute_proof_metrics(store: Store) -> ProofMetrics:
     unknowns = sum(1 for m in measurements if m.outcome is Outcome.UNKNOWN)
     confidence = _proof_confidence(
         comparable_count=len(measurements),
-        assisted_count=len(assisted),
-        unassisted_count=len(unassisted),
-        token_samples=token_samples,
+        assisted_known_count=len(assisted_known),
+        unassisted_known_count=len(unassisted_known),
+        assisted_token_samples=len(assisted_tokens),
+        unassisted_token_samples=len(unassisted_tokens),
+        outcome_lift=outcome_lift,
+        token_reduction=token_reduction,
         unknowns=unknowns,
     )
 
@@ -211,23 +216,45 @@ def _success_rate(measurements: list[MeasurementRecord]) -> float | None:
     return successes / len(measurements)
 
 
+def _measured_token_total(measurement: MeasurementRecord) -> int | None:
+    if measurement.input_tokens is None and measurement.output_tokens is None:
+        return None
+    input_tokens = (
+        measurement.input_tokens
+        if measurement.input_tokens is not None
+        else measurement.injected_skill_tokens
+    )
+    return input_tokens + (measurement.output_tokens or 0)
+
+
 def _proof_confidence(
     *,
     comparable_count: int,
-    assisted_count: int,
-    unassisted_count: int,
-    token_samples: int,
+    assisted_known_count: int,
+    unassisted_known_count: int,
+    assisted_token_samples: int,
+    unassisted_token_samples: int,
+    outcome_lift: float | None,
+    token_reduction: float | None,
     unknowns: int,
 ) -> EvidenceConfidence:
     if (
         comparable_count >= 50
-        and assisted_count >= 10
-        and unassisted_count >= 10
-        and token_samples >= 20
+        and assisted_known_count >= 10
+        and unassisted_known_count >= 10
+        and assisted_token_samples >= 10
+        and unassisted_token_samples >= 10
+        and outcome_lift is not None
+        and token_reduction is not None
         and unknowns / comparable_count <= 0.2
     ):
         return EvidenceConfidence.HIGH
-    if comparable_count >= 10 and assisted_count >= 3 and unassisted_count >= 3:
+    if (
+        comparable_count >= 10
+        and assisted_known_count >= 3
+        and unassisted_known_count >= 3
+        and outcome_lift is not None
+    ):
         return EvidenceConfidence.MEDIUM
     return EvidenceConfidence.LOW
 

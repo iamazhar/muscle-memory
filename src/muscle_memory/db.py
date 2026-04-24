@@ -938,6 +938,14 @@ class Store:
         finally:
             conn.close()
 
+    def list_task_ids_with_activations(self) -> set[str]:
+        conn = self._open()
+        try:
+            rows = conn.execute("SELECT DISTINCT task_id FROM activations").fetchall()
+            return {str(row["task_id"]) for row in rows}
+        finally:
+            conn.close()
+
     def credit_activations(
         self, task_id: str, skill_ids: list[str], outcome: Outcome
     ) -> None:
