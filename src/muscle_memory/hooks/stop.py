@@ -21,6 +21,7 @@ from muscle_memory.debug import log_debug_event
 from muscle_memory.harness import get_harness
 from muscle_memory.models import BackgroundJob, Episode, JobKind, JobStatus, Trajectory
 from muscle_memory.outcomes import infer_outcome
+from muscle_memory.personal_loop import add_measurement_for_task
 from muscle_memory.scorer import Scorer
 
 
@@ -85,12 +86,19 @@ def main(argv: list[str] | None = None) -> int:
             log_debug_event(cfg, component="stop", event="paused", session_id=session_id)
             return 0
 
+        store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+        task = store.find_latest_task_by_session(session_id) if session_id else None
         trajectory = adapter.parse_transcript(transcript_path)
         if not trajectory.tool_calls and not trajectory.assistant_turns:
             log_debug_event(cfg, component="stop", event="empty_trajectory", session_id=session_id)
             return 0
 
-        activated = _load_activations(cfg, session_id)
+        if task is not None:
+            activation_records = store.list_activations_for_task(task.id)
+            activated = [record.skill_id for record in activation_records]
+        else:
+            activation_records = []
+            activated = _load_activations(cfg, session_id)
         signal = infer_outcome(
             trajectory,
             user_followup=trajectory.user_followup,
@@ -107,9 +115,22 @@ def main(argv: list[str] | None = None) -> int:
             activated_skills=activated,
         )
 
-        store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
         store.add_episode(episode)
         updated_skills = Scorer(store, max_skills=cfg.max_skills).credit_episode(episode)
+        if task is not None:
+            store.credit_activations(task.id, activated, signal.outcome)
+            injected_tokens = sum(record.injected_token_count for record in activation_records)
+            add_measurement_for_task(
+                store,
+                task=task,
+                outcome=signal.outcome,
+                reason="; ".join(signal.reasons),
+                input_tokens=trajectory.input_tokens,
+                output_tokens=trajectory.output_tokens,
+                injected_skill_tokens=injected_tokens,
+                tool_call_count=len(trajectory.tool_calls),
+                comparable=bool(trajectory.tool_calls),
+            )
         log_debug_event(
             cfg,
             component="stop",

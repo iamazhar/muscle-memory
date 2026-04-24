@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from muscle_memory.db import Store
-from muscle_memory.models import ActivationRecord, DeliveryMode, TaskRecord
+from muscle_memory.models import (
+    ActivationRecord,
+    DeliveryMode,
+    EvidenceConfidence,
+    MeasurementRecord,
+    Outcome,
+    TaskRecord,
+)
 from muscle_memory.prompt_cleaning import clean_prompt_text
 from muscle_memory.retriever import RetrievedSkill
 
@@ -126,3 +133,37 @@ def record_activations(
         store.add_activation(record)
         records.append(record)
     return records
+
+
+def add_measurement_for_task(
+    store: Store,
+    *,
+    task: TaskRecord,
+    outcome: Outcome,
+    reason: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    injected_skill_tokens: int = 0,
+    tool_call_count: int = 0,
+    comparable: bool = False,
+) -> MeasurementRecord:
+    if outcome is Outcome.UNKNOWN:
+        confidence = EvidenceConfidence.LOW
+    elif comparable and tool_call_count > 0:
+        confidence = EvidenceConfidence.HIGH
+    else:
+        confidence = EvidenceConfidence.MEDIUM
+
+    measurement = MeasurementRecord(
+        task_id=task.id,
+        outcome=outcome,
+        confidence=confidence,
+        reason=reason,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        injected_skill_tokens=injected_skill_tokens,
+        tool_call_count=tool_call_count,
+        comparable=comparable,
+    )
+    store.add_measurement(measurement)
+    return measurement

@@ -21,6 +21,12 @@ from muscle_memory.db import Store
 from muscle_memory.debug import log_debug_event
 from muscle_memory.embeddings import make_embedder
 from muscle_memory.harness import get_harness
+from muscle_memory.models import DeliveryMode
+from muscle_memory.personal_loop import (
+    capture_task,
+    count_text_tokens,
+    record_activations,
+)
 from muscle_memory.retriever import RetrievedSkill, Retriever
 
 
@@ -101,11 +107,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         store = Store(cfg.db_path, embedding_dims=cfg.embedding_dims)
+        task = capture_task(
+            store,
+            raw_prompt=prompt,
+            harness=cfg.harness,
+            project_path=cwd,
+            session_id=session_id,
+        )
         embedder = make_embedder(cfg)
         retriever = Retriever(store, embedder, cfg)
 
         retrieve_start = time.perf_counter()
-        hits = retriever.retrieve(prompt)
+        hits = retriever.retrieve(task.cleaned_prompt)
         retrieve_ms = (time.perf_counter() - retrieve_start) * 1000
         existing_activation_ids = _load_recorded_activation_ids(cfg, session_id)
     except Exception:
@@ -118,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             component="user_prompt",
             event="no_hits",
             session_id=session_id,
-            prompt_excerpt=prompt[:120],
+            task_id=task.id,
+            prompt_excerpt=task.cleaned_prompt[:120],
             retrieve_ms=round(retrieve_ms, 3),
             embed_ms=round(retriever.last_diagnostics.embed_ms, 3),
             search_ms=round(retriever.last_diagnostics.search_ms, 3),
@@ -129,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    context = adapter.format_context(hits)
     try:
         activation_start = time.perf_counter()
         new_hits = [h for h in hits if h.skill.id not in existing_activation_ids]
@@ -139,13 +154,22 @@ def main(argv: list[str] | None = None) -> int:
             session_id,
             [{"skill_id": h.skill.id, "distance": h.distance} for h in hits],
         )
+        activation_records = record_activations(
+            store,
+            task=task,
+            hits=hits,
+            delivery_mode=DeliveryMode.CLAUDE_HOOK,
+            context_token_count=count_text_tokens(context),
+        )
         activation_record_ms = (time.perf_counter() - activation_start) * 1000
         log_debug_event(
             cfg,
             component="user_prompt",
             event="hits_returned",
             session_id=session_id,
-            prompt_excerpt=prompt[:120],
+            task_id=task.id,
+            activation_ids=[record.id for record in activation_records],
+            prompt_excerpt=task.cleaned_prompt[:120],
             hit_count=len(hits),
             new_hit_count=len(new_hits),
             skill_ids=[h.skill.id for h in hits],
@@ -163,7 +187,6 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass  # nice-to-have, not critical
 
-    context = adapter.format_context(hits)
     sys.stdout.write(context)
     sys.stdout.flush()
     return 0
