@@ -941,8 +941,7 @@ def stats(
     console.print(Rule("Proof"))
     if proof.comparable_tasks < 10:
         console.print(
-            "  [yellow]insufficient evidence[/yellow]"
-            f"  ({proof.comparable_tasks} comparable tasks)"
+            f"  [yellow]insufficient evidence[/yellow]  ({proof.comparable_tasks} comparable tasks)"
         )
         console.print(
             "  [dim]Need at least 10 comparable measured tasks with assisted "

@@ -171,9 +171,7 @@ def compute_proof_metrics(store: Store) -> ProofMetrics:
         token_total for m in assisted if (token_total := _measured_token_total(m)) is not None
     ]
     unassisted_tokens = [
-        token_total
-        for m in unassisted
-        if (token_total := _measured_token_total(m)) is not None
+        token_total for m in unassisted if (token_total := _measured_token_total(m)) is not None
     ]
     token_reduction = None
     if assisted_tokens and unassisted_tokens:

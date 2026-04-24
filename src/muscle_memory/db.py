@@ -946,9 +946,7 @@ class Store:
         finally:
             conn.close()
 
-    def credit_activations(
-        self, task_id: str, skill_ids: list[str], outcome: Outcome
-    ) -> None:
+    def credit_activations(self, task_id: str, skill_ids: list[str], outcome: Outcome) -> None:
         if not skill_ids:
             return
         placeholders = ",".join("?" for _ in skill_ids)

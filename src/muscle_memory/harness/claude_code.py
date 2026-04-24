@@ -223,9 +223,7 @@ class ClaudeCodeHarness:
                         )
                     if type(raw_output) is int and raw_output >= 0:
                         output_tokens = (
-                            raw_output
-                            if output_tokens is None
-                            else output_tokens + raw_output
+                            raw_output if output_tokens is None else output_tokens + raw_output
                         )
 
                 if rec_type == "user":

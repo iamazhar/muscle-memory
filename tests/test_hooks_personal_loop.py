@@ -54,9 +54,7 @@ def _seed_skill(store: Store, embedder: DummyEmbedder) -> Skill:
     return skill
 
 
-def test_user_prompt_hook_records_task_and_activation(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_user_prompt_hook_records_task_and_activation(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path
     (project_root / ".claude").mkdir()
     cfg = _config(project_root)
@@ -113,9 +111,7 @@ def test_repeated_user_prompt_hook_keeps_token_evidence_and_dedupes_credit(
 
     tasks = store.list_tasks(limit=10)
     activations = [
-        activation
-        for task in tasks
-        for activation in store.list_activations_for_task(task.id)
+        activation for task in tasks for activation in store.list_activations_for_task(task.id)
     ]
     assert len(tasks) == 2
     assert len(activations) == 2
@@ -182,9 +178,7 @@ def test_stop_hook_credits_canonical_activation_and_records_measurement(
     transcript.write_text(
         "\n".join(
             [
-                json.dumps(
-                    {"type": "user", "message": {"content": "pytest import errors"}}
-                ),
+                json.dumps({"type": "user", "message": {"content": "pytest import errors"}}),
                 json.dumps(
                     {
                         "type": "assistant",
@@ -350,9 +344,7 @@ def _write_success_transcript(project_root: Path) -> Path:
     transcript.write_text(
         "\n".join(
             [
-                json.dumps(
-                    {"type": "user", "message": {"content": "pytest import errors"}}
-                ),
+                json.dumps({"type": "user", "message": {"content": "pytest import errors"}}),
                 json.dumps(
                     {
                         "type": "assistant",

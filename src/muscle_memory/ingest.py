@@ -174,8 +174,7 @@ def _record_measurement_for_episode(
 
 def _injected_tokens_for_task(store: Store, task_id: str) -> int:
     activation_tokens = sum(
-        activation.injected_token_count
-        for activation in store.list_activations_for_task(task_id)
+        activation.injected_token_count for activation in store.list_activations_for_task(task_id)
     )
     existing = store.get_measurement_for_task(task_id)
     existing_tokens = existing.injected_skill_tokens if existing is not None else 0

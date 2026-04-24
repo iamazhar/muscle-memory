@@ -73,15 +73,11 @@ class CodexHarness:
                         raw_output = usage.get("output_tokens")
                         if type(raw_input) is int and raw_input >= 0:
                             input_tokens = (
-                                raw_input
-                                if input_tokens is None
-                                else input_tokens + raw_input
+                                raw_input if input_tokens is None else input_tokens + raw_input
                             )
                         if type(raw_output) is int and raw_output >= 0:
                             output_tokens = (
-                                raw_output
-                                if output_tokens is None
-                                else output_tokens + raw_output
+                                raw_output if output_tokens is None else output_tokens + raw_output
                             )
                     continue
                 if record.get("type") != "item.completed":

@@ -104,9 +104,7 @@ def test_claude_parser_captures_turn_usage(tmp_path: Path) -> None:
                             "cache_read_input_tokens": 4,
                             "output_tokens": 10,
                         },
-                        "message": {
-                            "content": [{"type": "text", "text": "Tests passed."}]
-                        },
+                        "message": {"content": [{"type": "text", "text": "Tests passed."}]},
                     }
                 ),
             ]
